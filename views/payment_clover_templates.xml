@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!--
+        Inline payment form for Clover.
+
+        Renders card input fields via Clover's hosted iframe SDK.
+        The JavaScript in payment_form.js mounts the Clover elements
+        into the div containers and handles tokenization on submit.
+
+        Referenced by the payment.provider record's inline_form_view_id.
+    -->
+    <template id="inline_form">
+        <t t-set="clover_values"
+           t-value="provider_sudo._clover_get_inline_form_values()"/>
+        <div id="clover-payment-form"
+             t-att-data-provider-id="provider_sudo.id"
+             t-att-data-clover-pakms-key="clover_values.get('pakms_key', '')"
+             t-att-data-clover-sdk-url="clover_values.get('sdk_url', '')">
+
+            <div class="mb-3">
+                <label class="form-label fw-bold">Card Number</label>
+                <div id="clover-card-number" class="form-control"
+                     style="height: 40px; padding-top: 10px;"></div>
+            </div>
+            <div class="row mb-3">
+                <div class="col-6">
+                    <label class="form-label fw-bold">Expiration</label>
+                    <div id="clover-card-date" class="form-control"
+                         style="height: 40px; padding-top: 10px;"></div>
+                </div>
+                <div class="col-3">
+                    <label class="form-label fw-bold">CVV</label>
+                    <div id="clover-card-cvv" class="form-control"
+                         style="height: 40px; padding-top: 10px;"></div>
+                </div>
+                <div class="col-3">
+                    <label class="form-label fw-bold">ZIP</label>
+                    <div id="clover-card-postal" class="form-control"
+                         style="height: 40px; padding-top: 10px;"></div>
+                </div>
+            </div>
+            <div id="clover-card-errors" class="text-danger small mb-2" role="alert"></div>
+        </div>
+    </template>
+
+</odoo>

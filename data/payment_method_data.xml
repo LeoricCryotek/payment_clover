@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <!--
+        Payment methods for Clover are linked automatically via
+        _get_default_payment_method_codes() which returns {'card'}.
+        The base payment module's card method is used directly.
+
+        This file is kept as a placeholder for any future Clover-specific
+        payment methods (e.g., Clover-branded methods).
+    -->
+</odoo>

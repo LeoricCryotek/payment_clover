@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!--
+        Standalone Payment Terminal action.
+
+        Opens a client-side form where staff can:
+        1. Select a partner (customer/member)
+        2. Enter an amount and description
+        3. Process a card payment via Clover's iframe
+    -->
+    <record id="action_clover_payment_terminal" model="ir.actions.client">
+        <field name="name">Clover Payment Terminal</field>
+        <field name="tag">payment_clover.terminal</field>
+        <field name="target">current</field>
+    </record>
+
+    <!-- Top-level menu entry for easy access -->
+    <menuitem id="menu_clover_terminal_root"
+              name="Clover Terminal"
+              action="action_clover_payment_terminal"
+              web_icon="payment_clover,static/description/icon.png"
+              sequence="200"/>
+
+</odoo>

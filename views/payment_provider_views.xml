@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- Extend the payment provider form to show Clover fields -->
+    <record id="payment_provider_form_clover" model="ir.ui.view">
+        <field name="name">payment.provider.form.clover</field>
+        <field name="model">payment.provider</field>
+        <field name="inherit_id" ref="payment.payment_provider_form"/>
+        <field name="arch" type="xml">
+            <group name="provider_credentials" position="inside">
+                <div class="alert alert-info mb-3" role="alert"
+                     colspan="2"
+                     invisible="code != 'clover' or state == 'enabled'">
+                    <strong>Tip:</strong> You can save in Disabled or Test
+                    mode without credentials. Fill them in, then switch to
+                    Enabled when ready.
+                </div>
+                <group invisible="code != 'clover'" string="Clover API Credentials">
+                    <field name="clover_api_key"
+                           password="True"
+                           placeholder="e.g. xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+                           required="state == 'enabled' and code == 'clover'"/>
+                    <field name="clover_pakms_key"
+                           placeholder="Your public tokenizer API key"
+                           required="state == 'enabled' and code == 'clover'"/>
+                    <field name="clover_merchant_id"
+                           placeholder="e.g. ABC123DEF456"
+                           required="state == 'enabled' and code == 'clover'"/>
+                </group>
+            </group>
+        </field>
+    </record>
+
+</odoo>
