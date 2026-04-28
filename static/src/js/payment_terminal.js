@@ -185,6 +185,15 @@ class CloverPaymentTerminal extends Component {
             return;
         }
 
+        if (!tokenResult.token) {
+            this.state.step = "form";
+            this.notification.add(
+                _t("No token received from Clover. Please re-enter card details."),
+                {type: "danger"},
+            );
+            return;
+        }
+
         // Send to server
         try {
             const result = await rpc("/payment/clover/terminal/process", {

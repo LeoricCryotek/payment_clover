@@ -181,7 +181,7 @@ class CloverController(http.Controller):
         methods=["POST"],
     )
     def terminal_process(self, provider_id, amount, currency_id,
-                         partner_id, clover_token, description="",
+                         partner_id, clover_token=None, description="",
                          **kwargs):
         """Process a payment from the staff terminal.
 
@@ -189,6 +189,12 @@ class CloverController(http.Controller):
 
         :return: dict with transaction details
         """
+        if not clover_token:
+            return {
+                "status": "error",
+                "message": "No card token received. Please re-enter card details.",
+            }
+
         provider_sudo = (
             request.env["payment.provider"]
             .sudo()
