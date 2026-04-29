@@ -35,6 +35,9 @@ class CloverPaymentTerminal extends Component {
             currency: null,
             currencies: [],
             selectedCurrencyId: null,
+            // Card reader status
+            cardReady: false,
+            cardError: "",
             // Result
             resultStatus: "",
             resultMessage: "",
@@ -71,6 +74,13 @@ class CloverPaymentTerminal extends Component {
             const usd = currencies.find(c => c.name === "USD");
             this.state.selectedCurrencyId = usd ? usd.id : currencies[0].id;
         }
+
+        // Auto-initialize card reader if we have a provider
+        if (this.state.selectedProviderId) {
+            // Small delay to let the DOM render the card field containers
+            await new Promise(r => setTimeout(r, 200));
+            await this.initCloverIframe();
+        }
     }
 
     async onSearchPartner() {
@@ -102,12 +112,16 @@ class CloverPaymentTerminal extends Component {
     }
 
     async initCloverIframe() {
-        if (this._cloverInstance) return;
+        // Reset state for re-init
+        this.state.cardReady = false;
+        this.state.cardError = "";
+        this._destroyClover();
 
         const provider = this.state.providers.find(
             p => p.id === this.state.selectedProviderId
         );
         if (!provider || !provider.clover_pakms_key) {
+            this.state.cardError = "Provider missing PAKMS key.";
             this.notification.add(_t("Provider missing PAKMS key."), {type: "danger"});
             return;
         }
@@ -119,28 +133,70 @@ class CloverPaymentTerminal extends Component {
 
         // Load SDK
         if (!window.Clover) {
-            await this._loadScript(sdkUrl);
+            try {
+                await this._loadScript(sdkUrl);
+            } catch (e) {
+                this.state.cardError = "Failed to load Clover SDK.";
+                this.notification.add(_t("Failed to load Clover SDK."), {type: "danger"});
+                return;
+            }
         }
         if (!window.Clover) {
+            this.state.cardError = "Clover SDK not available.";
             this.notification.add(_t("Failed to load Clover SDK."), {type: "danger"});
             return;
         }
 
-        this._cloverInstance = new window.Clover(provider.clover_pakms_key);
-        const elements = this._cloverInstance.elements();
+        try {
+            this._cloverInstance = new window.Clover(provider.clover_pakms_key);
+            const elements = this._cloverInstance.elements();
 
-        this._cloverElements.cardNumber = elements.create("CARD_NUMBER");
-        this._cloverElements.cardDate = elements.create("CARD_DATE");
-        this._cloverElements.cardCvv = elements.create("CARD_CVV");
-        this._cloverElements.cardPostal = elements.create("CARD_POSTAL_CODE");
+            this._cloverElements.cardNumber = elements.create("CARD_NUMBER");
+            this._cloverElements.cardDate = elements.create("CARD_DATE");
+            this._cloverElements.cardCvv = elements.create("CARD_CVV");
+            this._cloverElements.cardPostal = elements.create("CARD_POSTAL_CODE");
 
-        // Wait a tick for DOM to render
-        await new Promise(r => setTimeout(r, 100));
+            // Wait a tick for DOM to render
+            await new Promise(r => setTimeout(r, 100));
 
-        this._cloverElements.cardNumber.mount("#terminal-card-number");
-        this._cloverElements.cardDate.mount("#terminal-card-date");
-        this._cloverElements.cardCvv.mount("#terminal-card-cvv");
-        this._cloverElements.cardPostal.mount("#terminal-card-postal");
+            this._cloverElements.cardNumber.mount("#terminal-card-number");
+            this._cloverElements.cardDate.mount("#terminal-card-date");
+            this._cloverElements.cardCvv.mount("#terminal-card-cvv");
+            this._cloverElements.cardPostal.mount("#terminal-card-postal");
+
+            this.state.cardReady = true;
+        } catch (e) {
+            this.state.cardError = "Could not initialize card reader: " + (e.message || "");
+            this.notification.add(
+                _t("Could not initialize card reader: ") + (e.message || ""),
+                {type: "danger"},
+            );
+        }
+    }
+
+    /**
+     * Wrap createToken with a timeout so the UI never hangs forever.
+     */
+    _createTokenWithTimeout(timeoutMs = 30000) {
+        return new Promise((resolve, reject) => {
+            const timer = setTimeout(() => {
+                reject(new Error(
+                    "Card tokenization timed out after " +
+                    (timeoutMs / 1000) + " seconds. " +
+                    "Please re-initialize the card reader and try again."
+                ));
+            }, timeoutMs);
+
+            this._cloverInstance.createToken()
+                .then(result => {
+                    clearTimeout(timer);
+                    resolve(result);
+                })
+                .catch(err => {
+                    clearTimeout(timer);
+                    reject(err);
+                });
+        });
     }
 
     async processPayment() {
@@ -158,17 +214,20 @@ class CloverPaymentTerminal extends Component {
             this.notification.add(_t("Please select a customer."), {type: "warning"});
             return;
         }
-        if (!this._cloverInstance) {
-            this.notification.add(_t("Card form not ready. Please wait."), {type: "warning"});
+        if (!this._cloverInstance || !this.state.cardReady) {
+            this.notification.add(
+                _t("Card reader not ready. Click 'Re-initialize Card Reader' and try again."),
+                {type: "warning"},
+            );
             return;
         }
 
         this.state.step = "processing";
 
-        // Tokenize
+        // Tokenize with timeout
         let tokenResult;
         try {
-            tokenResult = await this._cloverInstance.createToken();
+            tokenResult = await this._createTokenWithTimeout(30000);
         } catch (e) {
             this.state.step = "form";
             this.notification.add(
@@ -229,7 +288,14 @@ class CloverPaymentTerminal extends Component {
         this.state.resultStatus = "";
         this.state.resultMessage = "";
         this.state.resultReference = "";
+        this.state.cardReady = false;
+        this.state.cardError = "";
         this._destroyClover();
+
+        // Re-initialize card reader after DOM renders
+        if (this.state.selectedProviderId) {
+            setTimeout(() => this.initCloverIframe(), 300);
+        }
     }
 
     _destroyClover() {
