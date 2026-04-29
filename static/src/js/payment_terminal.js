@@ -63,16 +63,15 @@ class CloverPaymentTerminal extends Component {
             this.state.selectedProviderId = providers[0].id;
         }
 
-        // Load currencies
+        // Default to USD
         const currencies = await this.orm.searchRead(
             "res.currency",
-            [["name", "in", ["USD", "CAD", "GBP", "EUR"]], ["active", "=", true]],
+            [["name", "=", "USD"], ["active", "=", true]],
             ["id", "name", "symbol"],
+            {limit: 1},
         );
-        this.state.currencies = currencies;
         if (currencies.length > 0) {
-            const usd = currencies.find(c => c.name === "USD");
-            this.state.selectedCurrencyId = usd ? usd.id : currencies[0].id;
+            this.state.selectedCurrencyId = currencies[0].id;
         }
 
         // Auto-initialize card reader if we have a provider
