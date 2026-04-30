@@ -171,6 +171,61 @@ class CloverController(http.Controller):
             )
 
     # ------------------------------------------------------------------
+    # Terminal: item list for product picker
+    # ------------------------------------------------------------------
+
+    @http.route(
+        "/payment/clover/terminal/items",
+        type="jsonrpc",
+        auth="user",
+        methods=["POST"],
+    )
+    def terminal_items(self, provider_id, **kwargs):
+        """Return Clover items for the terminal product picker."""
+        items = (
+            request.env["clover.item"]
+            .sudo()
+            .search_read(
+                [
+                    ("provider_id", "=", int(provider_id)),
+                    ("active", "=", True),
+                    ("hidden", "=", False),
+                ],
+                ["id", "name", "price", "price_type", "sku",
+                 "category_name", "clover_item_id"],
+                order="category_name, name",
+            )
+        )
+        return {"items": items}
+
+    # ------------------------------------------------------------------
+    # Terminal: guest / walk-in partner
+    # ------------------------------------------------------------------
+
+    @http.route(
+        "/payment/clover/terminal/guest_partner",
+        type="jsonrpc",
+        auth="user",
+        methods=["POST"],
+    )
+    def terminal_guest_partner(self, **kwargs):
+        """Find or create a 'Guest / Walk-in' partner for anonymous charges."""
+        Partner = request.env["res.partner"].sudo()
+        guest = Partner.search([
+            ("name", "=", "Guest / Walk-in"),
+            ("is_company", "=", False),
+            ("active", "=", True),
+        ], limit=1)
+        if not guest:
+            guest = Partner.create({
+                "name": "Guest / Walk-in",
+                "is_company": False,
+                "customer_rank": 1,
+                "comment": "Auto-created for anonymous Clover terminal payments.",
+            })
+        return {"partner_id": guest.id}
+
+    # ------------------------------------------------------------------
     # Standalone payment terminal (staff-facing)
     # ------------------------------------------------------------------
 
@@ -226,7 +281,10 @@ class CloverController(http.Controller):
         )
 
         # Charge immediately
-        tx_sudo = tx_sudo.with_context(clover_source_token=clover_token)
+        tx_sudo = tx_sudo.with_context(
+            clover_source_token=clover_token,
+            clover_charge_description=description or "",
+        )
         tx_sudo._send_payment_request()
 
         return {

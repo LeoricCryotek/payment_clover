@@ -9,6 +9,15 @@
                     <h2 class="mb-4">
                         <i class="fa fa-credit-card me-2"/>
                         Clover Payment Terminal
+                        <t t-if="state.providers.length > 0">
+                            <t t-set="activeProv"
+                               t-value="state.providers.find(p => p.id === state.selectedProviderId)"/>
+                            <span t-if="activeProv and activeProv.state === 'test'"
+                                  class="badge bg-warning text-dark ms-2"
+                                  style="font-size: 0.5em; vertical-align: middle;">
+                                <i class="fa fa-flask me-1"/>SANDBOX
+                            </span>
+                        </t>
                     </h2>
 
                     <!-- ========== FORM STEP ========== -->
@@ -42,15 +51,25 @@
                             </div>
 
                             <!-- Customer search -->
-                            <div class="mb-3">
+                            <div class="mb-3 position-relative">
                                 <label class="form-label fw-bold">Customer</label>
-                                <input type="text" class="form-control"
-                                       placeholder="Search by name, email, or phone..."
-                                       t-model="state.partnerSearch"
-                                       t-on-input="onSearchPartner"/>
-                                <div t-if="state.partners.length > 0"
-                                     class="list-group mt-1 position-absolute shadow"
-                                     style="z-index: 1000; max-height: 200px; overflow-y: auto;">
+                                <div class="input-group">
+                                    <input type="text" class="form-control"
+                                           placeholder="Search by name, email, or phone..."
+                                           t-model="state.partnerSearch"
+                                           t-on-input="onSearchPartner"
+                                           t-att-disabled="state.isGuest"/>
+                                    <button type="button"
+                                            class="btn btn-outline-secondary"
+                                            t-att-class="state.isGuest ? 'btn btn-secondary' : 'btn btn-outline-secondary'"
+                                            t-on-click="toggleGuest"
+                                            title="Guest / Walk-in checkout">
+                                        <i class="fa fa-user-secret me-1"/>Guest
+                                    </button>
+                                </div>
+                                <div t-if="state.partners.length > 0 and !state.isGuest"
+                                     class="list-group mt-1 position-absolute shadow bg-white"
+                                     style="z-index: 1050; max-height: 200px; overflow-y: auto; left: 0; right: 0;">
                                     <t t-foreach="state.partners" t-as="p" t-key="p.id">
                                         <button type="button"
                                                 class="list-group-item list-group-item-action"
@@ -60,6 +79,42 @@
                                                    t-esc="p.email"/>
                                         </button>
                                     </t>
+                                </div>
+                                <small t-if="state.isGuest" class="form-text text-muted">
+                                    <i class="fa fa-info-circle me-1"/>Processing as guest walk-in.
+                                </small>
+                            </div>
+
+                            <!-- Item picker (from synced Clover inventory) -->
+                            <div t-if="state.cloverItems.length > 0" class="mb-3">
+                                <label class="form-label fw-bold">Item (optional)</label>
+                                <select class="form-select"
+                                        t-on-change="selectItem">
+                                    <option value="">-- Select an item --</option>
+                                    <t t-foreach="state.cloverItems" t-as="item" t-key="item.id">
+                                        <option t-att-value="item.id"
+                                                t-att-selected="item.id === state.selectedItemId">
+                                            <t t-if="item.category_name">
+                                                [<t t-esc="item.category_name"/>]
+                                            </t>
+                                            <t t-esc="item.name"/>
+                                            <t t-if="item.price_type === 'FIXED'">
+                                                — $<t t-esc="item.price.toFixed(2)"/>
+                                            </t>
+                                            <t t-if="item.price_type === 'VARIABLE'">
+                                                — (enter amount)
+                                            </t>
+                                        </option>
+                                    </t>
+                                </select>
+                                <small class="form-text text-muted">
+                                    Selecting an item auto-fills amount and description.
+                                </small>
+                            </div>
+                            <div t-if="state.cloverItems.length === 0 and state.itemsLoading" class="mb-3">
+                                <label class="form-label fw-bold">Item</label>
+                                <div class="text-muted small">
+                                    <i class="fa fa-spinner fa-spin me-1"/>Loading items...
                                 </div>
                             </div>
 
@@ -144,6 +199,27 @@
                                 <i class="fa fa-bolt me-2"/>
                                 Process Payment
                             </button>
+
+                            <!-- Test-mode helper -->
+                            <t t-if="state.providers.length > 0">
+                                <t t-set="selProv"
+                                   t-value="state.providers.find(p => p.id === state.selectedProviderId)"/>
+                                <div t-if="selProv and selProv.state === 'test'"
+                                     class="alert alert-info mt-3 small mb-0">
+                                    <i class="fa fa-flask me-1"/>
+                                    <strong>Sandbox Mode</strong> — use these test cards:
+                                    <code>4111 1111 1111 1111</code> (Visa),
+                                    <code>5500 0000 0000 0004</code> (MC),
+                                    <code>6011 1111 1111 1117</code> (Discover).
+                                    Exp: any future date. CVV: any 3 digits.
+                                    ZIP: any 5 digits.
+                                    <br/>
+                                    <em>If tokenization times out, verify that
+                                    your PAKMS key was obtained from the
+                                    <strong>sandbox</strong> Clover dashboard
+                                    (sandbox.dev.clover.com), not production.</em>
+                                </div>
+                            </t>
                         </div>
                     </div>
 

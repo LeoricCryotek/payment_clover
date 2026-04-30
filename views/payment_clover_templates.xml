@@ -16,6 +16,7 @@
         <div id="clover-payment-form"
              t-att-data-provider-id="provider_sudo.id"
              t-att-data-clover-pakms-key="clover_values.get('pakms_key', '')"
+             t-att-data-clover-merchant-id="clover_values.get('merchant_id', '')"
              t-att-data-clover-sdk-url="clover_values.get('sdk_url', '')">
 
             <div class="mb-3">

@@ -35,6 +35,12 @@ class CloverPaymentTerminal extends Component {
             currency: null,
             currencies: [],
             selectedCurrencyId: null,
+            // Item picker
+            cloverItems: [],
+            selectedItemId: null,
+            itemsLoading: false,
+            // Guest checkout
+            isGuest: false,
             // Card reader status
             cardReady: false,
             cardError: "",
@@ -56,7 +62,7 @@ class CloverPaymentTerminal extends Component {
         const providers = await this.orm.searchRead(
             "payment.provider",
             [["code", "=", "clover"], ["state", "in", ["enabled", "test"]]],
-            ["id", "name", "clover_pakms_key", "state"],
+            ["id", "name", "clover_pakms_key", "clover_merchant_id", "state"],
         );
         this.state.providers = providers;
         if (providers.length === 1) {
@@ -74,11 +80,14 @@ class CloverPaymentTerminal extends Component {
             this.state.selectedCurrencyId = currencies[0].id;
         }
 
-        // Auto-initialize card reader if we have a provider
+        // Auto-initialize card reader and load items if we have a provider
         if (this.state.selectedProviderId) {
             // Small delay to let the DOM render the card field containers
             await new Promise(r => setTimeout(r, 200));
-            await this.initCloverIframe();
+            await Promise.all([
+                this.initCloverIframe(),
+                this._loadItems(),
+            ]);
         }
     }
 
@@ -108,6 +117,58 @@ class CloverPaymentTerminal extends Component {
             this.state.partnerSearch = partner.name;
         }
         this.state.partners = [];
+        this.state.isGuest = false;
+    }
+
+    toggleGuest() {
+        this.state.isGuest = !this.state.isGuest;
+        if (this.state.isGuest) {
+            this.state.selectedPartnerId = null;
+            this.state.partnerSearch = "";
+            this.state.partners = [];
+        }
+    }
+
+    async _loadItems() {
+        if (!this.state.selectedProviderId) {
+            return;
+        }
+        this.state.itemsLoading = true;
+        try {
+            const result = await rpc("/payment/clover/terminal/items", {
+                provider_id: this.state.selectedProviderId,
+            });
+            this.state.cloverItems = result.items || [];
+        } catch (e) {
+            console.warn("[Clover Terminal] Failed to load items:", e);
+            this.state.cloverItems = [];
+        }
+        this.state.itemsLoading = false;
+    }
+
+    selectItem(ev) {
+        const itemId = parseInt(ev.target.value);
+        this.state.selectedItemId = itemId || null;
+        if (!itemId) {
+            return;
+        }
+        const item = this.state.cloverItems.find(i => i.id === itemId);
+        if (item) {
+            if (item.price && item.price_type === "FIXED") {
+                this.state.amount = item.price.toFixed(2);
+            }
+            this.state.description = item.name;
+        }
+    }
+
+    async _getOrCreateGuestPartner() {
+        try {
+            const result = await rpc("/payment/clover/terminal/guest_partner", {});
+            return result.partner_id || null;
+        } catch (e) {
+            console.error("[Clover Terminal] Guest partner error:", e);
+            return null;
+        }
     }
 
     async initCloverIframe() {
@@ -147,7 +208,21 @@ class CloverPaymentTerminal extends Component {
         }
 
         try {
-            this._cloverInstance = new window.Clover(provider.clover_pakms_key);
+            const pakmsKey = provider.clover_pakms_key;
+            const merchantId = provider.clover_merchant_id;
+            const envLabel = provider.state === "test" ? "SANDBOX" : "PRODUCTION";
+            console.log(
+                `[Clover Terminal] Initializing in ${envLabel} mode. ` +
+                `PAKMS key starts with: ${pakmsKey.substring(0, 8)}… ` +
+                `Merchant ID: ${merchantId || "(not set)"}`
+            );
+
+            // merchantId is required for reCAPTCHA and full tokenization support
+            const cloverOpts = {};
+            if (merchantId) {
+                cloverOpts.merchantId = merchantId;
+            }
+            this._cloverInstance = new window.Clover(pakmsKey, cloverOpts);
             const elements = this._cloverInstance.elements();
 
             this._cloverElements.cardNumber = elements.create("CARD_NUMBER");
@@ -163,8 +238,10 @@ class CloverPaymentTerminal extends Component {
             this._cloverElements.cardCvv.mount("#terminal-card-cvv");
             this._cloverElements.cardPostal.mount("#terminal-card-postal");
 
+            console.log("[Clover Terminal] Card elements mounted successfully.");
             this.state.cardReady = true;
         } catch (e) {
+            console.error("[Clover Terminal] Init error:", e);
             this.state.cardError = "Could not initialize card reader: " + (e.message || "");
             this.notification.add(
                 _t("Could not initialize card reader: ") + (e.message || ""),
@@ -209,8 +286,20 @@ class CloverPaymentTerminal extends Component {
             this.notification.add(_t("Please enter a valid amount."), {type: "warning"});
             return;
         }
-        if (!this.state.selectedPartnerId) {
-            this.notification.add(_t("Please select a customer."), {type: "warning"});
+        // Resolve partner: guest walk-in or selected customer
+        let partnerId = this.state.selectedPartnerId;
+        if (this.state.isGuest) {
+            partnerId = await this._getOrCreateGuestPartner();
+            if (!partnerId) {
+                this.notification.add(
+                    _t("Could not create guest partner record."),
+                    {type: "danger"},
+                );
+                return;
+            }
+        }
+        if (!partnerId) {
+            this.notification.add(_t("Please select a customer or use Guest checkout."), {type: "warning"});
             return;
         }
         if (!this._cloverInstance || !this.state.cardReady) {
@@ -226,13 +315,21 @@ class CloverPaymentTerminal extends Component {
         // Tokenize with timeout
         let tokenResult;
         try {
+            console.log("[Clover Terminal] Calling createToken()...");
             tokenResult = await this._createTokenWithTimeout(30000);
+            console.log("[Clover Terminal] createToken result:", tokenResult);
         } catch (e) {
+            console.error("[Clover Terminal] createToken failed:", e);
             this.state.step = "form";
-            this.notification.add(
-                _t("Failed to tokenize card: ") + (e.message || ""),
-                {type: "danger"},
-            );
+            const hint = e.message && e.message.includes("timed out")
+                ? _t(
+                    "Card tokenization timed out. This usually means the " +
+                    "PAKMS key does not match the environment (sandbox vs " +
+                    "production). Please verify your Clover credentials " +
+                    "under Payment Providers."
+                  )
+                : _t("Failed to tokenize card: ") + (e.message || "");
+            this.notification.add(hint, {type: "danger"});
             return;
         }
 
@@ -258,7 +355,7 @@ class CloverPaymentTerminal extends Component {
                 provider_id: this.state.selectedProviderId,
                 amount: amount,
                 currency_id: this.state.selectedCurrencyId,
-                partner_id: this.state.selectedPartnerId,
+                partner_id: partnerId,
                 clover_token: tokenResult.token,
                 description: this.state.description,
             });
@@ -284,6 +381,8 @@ class CloverPaymentTerminal extends Component {
         this.state.description = "";
         this.state.selectedPartnerId = null;
         this.state.partnerSearch = "";
+        this.state.selectedItemId = null;
+        this.state.isGuest = false;
         this.state.resultStatus = "";
         this.state.resultMessage = "";
         this.state.resultReference = "";
@@ -298,9 +397,29 @@ class CloverPaymentTerminal extends Component {
     }
 
     _destroyClover() {
-        // Clover elements don't have a destroy method; just null refs
         this._cloverInstance = null;
         this._cloverElements = {};
+
+        // Remove the Clover SDK script tag so it doesn't inject persistent
+        // DOM elements (e.g. "Powered by Clover" footer) across the SPA.
+        const scripts = document.querySelectorAll(
+            'script[src*="clover.com/sdk.js"]'
+        );
+        scripts.forEach(s => s.remove());
+
+        // Remove any Clover-injected branding / overlay elements
+        document.querySelectorAll(
+            '.clover-footer, [id*="clover-footer"], [class*="clover-badge"]'
+        ).forEach(el => el.remove());
+
+        // Also remove the global Clover constructor so a fresh SDK can load.
+        // Note: the Clover SDK may set window.Clover as non-configurable,
+        // so `delete` would throw a TypeError.  Setting to undefined is safe.
+        try {
+            delete window.Clover;
+        } catch (_e) {
+            window.Clover = undefined;
+        }
     }
 
     _loadScript(src) {

@@ -78,7 +78,12 @@ publicWidget.registry.PaymentCloverForm = publicWidget.Widget.extend({
         }
 
         try {
-            this._cloverInstance = new window.Clover(pakmsKey);
+            const merchantId = container.dataset.cloverMerchantId;
+            const cloverOpts = {};
+            if (merchantId) {
+                cloverOpts.merchantId = merchantId;
+            }
+            this._cloverInstance = new window.Clover(pakmsKey, cloverOpts);
             const elements = this._cloverInstance.elements();
 
             // Create individual card elements
@@ -170,9 +175,12 @@ publicWidget.registry.PaymentForm?.include?.({
 
         // Get the Clover instance from the global scope
         const pakmsKey = container.dataset.cloverPakmsKey;
+        const merchantId = container.dataset.cloverMerchantId;
         let cloverInstance;
         try {
-            cloverInstance = new window.Clover(pakmsKey);
+            const opts = {};
+            if (merchantId) { opts.merchantId = merchantId; }
+            cloverInstance = new window.Clover(pakmsKey, opts);
         } catch (e) {
             this._displayError(_t("Payment Error"),
                 _t("Could not initialize Clover SDK."));

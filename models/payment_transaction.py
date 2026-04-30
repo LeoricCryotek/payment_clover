@@ -45,6 +45,7 @@ class PaymentTransaction(models.Model):
         base_url = self.provider_id.get_base_url()
         return {
             "clover_pakms_key": inline_values["pakms_key"],
+            "clover_merchant_id": inline_values.get("merchant_id", ""),
             "clover_sdk_url": inline_values["sdk_url"],
             "return_url": f"{base_url}{CloverController._return_url}",
         }
@@ -52,6 +53,45 @@ class PaymentTransaction(models.Model):
     # ------------------------------------------------------------------
     # Payment request (charge creation)
     # ------------------------------------------------------------------
+
+    def _clover_build_description(self):
+        """Build a human-readable description for the Clover charge.
+
+        Priority:
+        1. Terminal — description passed via context (item name / staff note)
+        2. Invoice — "INV/2026/00015: Dues, Event Ticket" (line names)
+        3. Sale order — "S00042: Dues, Event Ticket" (line names)
+        4. Fallback — the Odoo transaction reference
+        """
+        # 1) Terminal description (staff entered or auto-filled from item)
+        ctx_desc = self.env.context.get("clover_charge_description", "")
+        if ctx_desc:
+            return f"{self.reference} — {ctx_desc}"
+
+        # 2) Invoice lines (account_payment adds invoice_ids)
+        if hasattr(self, "invoice_ids") and self.invoice_ids:
+            inv = self.invoice_ids[0]
+            lines = inv.invoice_line_ids.filtered(
+                lambda l: l.display_type == "product"
+            )
+            if lines:
+                items = ", ".join(lines.mapped("name")[:10])
+                return f"{inv.name}: {items}"
+            return f"{inv.name}: {self.reference}"
+
+        # 3) Sale order lines (sale module adds sale_order_ids)
+        if hasattr(self, "sale_order_ids") and self.sale_order_ids:
+            so = self.sale_order_ids[0]
+            lines = so.order_line.filtered(
+                lambda l: not l.display_type
+            )
+            if lines:
+                items = ", ".join(lines.mapped("name")[:10])
+                return f"{so.name}: {items}"
+            return f"{so.name}: {self.reference}"
+
+        # 4) Fallback
+        return self.reference
 
     def _send_payment_request(self):
         """Override of `payment` to create a Clover charge."""
@@ -71,7 +111,7 @@ class PaymentTransaction(models.Model):
             "amount": amount_minor,
             "currency": self.currency_id.name.lower(),
             "source": source_token,
-            "description": self.reference,
+            "description": self._clover_build_description(),
             "external_reference_id": self.reference,
             "capture": not self.provider_id.capture_manually,
         }

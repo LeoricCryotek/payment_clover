@@ -28,6 +28,104 @@
                            required="state == 'enabled' and code == 'clover'"/>
                 </group>
             </group>
+
+            <!-- Sync Items button in the header -->
+            <xpath expr="//sheet" position="before">
+                <header>
+                    <button name="action_sync_clover_items"
+                            string="Sync Items from Clover"
+                            type="object"
+                            class="btn-secondary"
+                            icon="fa-refresh"
+                            invisible="code != 'clover' or state == 'disabled'"
+                            confirm="This will fetch all items from your Clover inventory. Continue?"/>
+                </header>
+            </xpath>
+
+            <!-- Clover Items notebook page -->
+            <xpath expr="//notebook" position="inside">
+                <page string="Clover Items"
+                      invisible="code != 'clover'"
+                      name="clover_items">
+                    <field name="clover_item_ids" nolabel="1">
+                        <list editable="bottom">
+                            <field name="name" readonly="1"/>
+                            <field name="clover_item_id" readonly="1"/>
+                            <field name="price" readonly="1"/>
+                            <field name="price_type" readonly="1"/>
+                            <field name="sku" readonly="1"/>
+                            <field name="category_name" readonly="1"/>
+                            <field name="product_id"/>
+                            <field name="active" readonly="1"/>
+                            <field name="last_synced" readonly="1"/>
+                        </list>
+                    </field>
+                </page>
+            </xpath>
+        </field>
+    </record>
+
+    <!-- Clover Item list view -->
+    <record id="clover_item_view_list" model="ir.ui.view">
+        <field name="name">clover.item.list</field>
+        <field name="model">clover.item</field>
+        <field name="arch" type="xml">
+            <list>
+                <field name="name"/>
+                <field name="clover_item_id"/>
+                <field name="price" string="Price ($)"/>
+                <field name="price_type"/>
+                <field name="sku"/>
+                <field name="category_name"/>
+                <field name="provider_id"/>
+                <field name="product_id"/>
+                <field name="last_synced"/>
+            </list>
+        </field>
+    </record>
+
+    <!-- Clover Item form view -->
+    <record id="clover_item_view_form" model="ir.ui.view">
+        <field name="name">clover.item.form</field>
+        <field name="model">clover.item</field>
+        <field name="arch" type="xml">
+            <form>
+                <sheet>
+                    <group>
+                        <group string="Clover Details">
+                            <field name="name"/>
+                            <field name="clover_item_id"/>
+                            <field name="provider_id"/>
+                            <field name="price"/>
+                            <field name="price_type"/>
+                            <field name="sku"/>
+                            <field name="category_name"/>
+                        </group>
+                        <group string="Odoo Link">
+                            <field name="product_id"/>
+                            <field name="active"/>
+                            <field name="hidden"/>
+                            <field name="last_synced"/>
+                        </group>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <!-- Clover Items action -->
+    <record id="clover_item_action" model="ir.actions.act_window">
+        <field name="name">Clover Items</field>
+        <field name="res_model">clover.item</field>
+        <field name="view_mode">list,form</field>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">
+                No Clover items synced yet.
+            </p>
+            <p>
+                Go to Payment Providers → Clover and click
+                "Sync Items from Clover" to import your inventory.
+            </p>
         </field>
     </record>
 
