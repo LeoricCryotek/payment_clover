@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 {
     "name": "Payment Provider: Clover",
-    "version": "19.0.1.6",
+    "version": "19.0.1.8",
     "category": "Accounting/Payment Providers",
     "summary": "Accept payments via Clover (charges, refunds, auth/capture).",
     "description": """

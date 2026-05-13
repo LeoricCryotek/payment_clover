@@ -14,7 +14,7 @@ import hmac
 import json
 import logging
 
-from odoo import http
+from odoo import _, http
 from odoo.http import request
 
 _logger = logging.getLogger(__name__)
@@ -315,28 +315,99 @@ class CloverController(http.Controller):
         if not currency.exists() or not partner.exists():
             return {"status": "error", "message": "Invalid currency or partner."}
 
-        # Create a transaction
-        tx_sudo = (
-            request.env["payment.transaction"]
-            .sudo()
-            .create({
-                "provider_id": provider_sudo.id,
-                "reference": request.env["payment.transaction"]
-                    .sudo()
-                    ._compute_reference("clover"),
-                "amount": amount,
-                "currency_id": currency.id,
-                "partner_id": partner.id,
-                "operation": "online_direct",
-            })
-        )
+        # payment.transaction.payment_method_id is required in Odoo 19.
+        # Prefer the 'card' method linked to this provider; fall back to
+        # any other active method on the provider; final fallback is a
+        # global search for an active 'card' method. If none can be
+        # found the provider is misconfigured — surface that clearly so
+        # an admin knows to re-run the install hook / link a method.
+        payment_method = provider_sudo.payment_method_ids.filtered(
+            lambda m: m.code == "card" and m.active
+        )[:1]
+        if not payment_method:
+            payment_method = provider_sudo.payment_method_ids.filtered("active")[:1]
+        if not payment_method:
+            payment_method = request.env["payment.method"].sudo().search(
+                [("code", "=", "card"), ("active", "=", True)],
+                limit=1,
+            )
+        if not payment_method:
+            _logger.error(
+                "Clover provider %s has no usable payment.method — "
+                "the post_init_hook may not have run.",
+                provider_sudo.id,
+            )
+            return {
+                "status": "error",
+                "message": _(
+                    "No payment method is linked to this Clover provider. "
+                    "An administrator needs to open the provider form and "
+                    "add 'Card' under Payment Methods, or reinstall the "
+                    "module so the post-install hook runs again."
+                ),
+            }
 
-        # Charge immediately
+        # Create the transaction record BEFORE attempting the charge so
+        # that even a hard failure produces a payment.transaction row in
+        # the Transaction Log. The cursor will commit at the end of this
+        # request as long as we don't re-raise. Wrap the create() itself
+        # so any unexpected validation failure (e.g. a future required
+        # field added by another module) returns a clean error to the
+        # cashier instead of an HTTP 500 / RPC error popup.
+        try:
+            tx_sudo = (
+                request.env["payment.transaction"]
+                .sudo()
+                .create({
+                    "provider_id": provider_sudo.id,
+                    "payment_method_id": payment_method.id,
+                    "reference": request.env["payment.transaction"]
+                        .sudo()
+                        ._compute_reference("clover"),
+                    "amount": amount,
+                    "currency_id": currency.id,
+                    "partner_id": partner.id,
+                    "operation": "online_direct",
+                })
+            )
+        except Exception as e:  # noqa: BLE001
+            _logger.exception(
+                "Clover: failed to create payment.transaction in terminal_process"
+            )
+            return {
+                "status": "error",
+                "message": _("Could not create payment record: %s") % e,
+            }
+
         tx_sudo = tx_sudo.with_context(
             clover_source_token=clover_token,
             clover_charge_description=description or "",
         )
-        tx_sudo._send_payment_request()
+
+        # Charge — any unexpected exception is caught so the request
+        # completes normally and the transaction row persists with
+        # state='error'. Without this catch, Odoo rolls back the whole
+        # request (including the create() above) and failures vanish
+        # from the Transaction Log.
+        try:
+            tx_sudo._send_payment_request()
+        except Exception as e:  # noqa: BLE001 — intentional broad catch
+            _logger.exception(
+                "Clover terminal charge raised an unhandled exception "
+                "for transaction %s", tx_sudo.reference,
+            )
+            try:
+                tx_sudo._set_error(
+                    (_("Unexpected error while charging Clover: %s") %
+                     str(e))[:1000]
+                )
+            except Exception:  # noqa: BLE001
+                # Last-resort fallback if even _set_error blows up — write
+                # the state directly so the row at least shows in the log.
+                tx_sudo.sudo().write({
+                    "state": "error",
+                    "state_message": str(e)[:1000],
+                })
 
         return {
             "status": "ok" if tx_sudo.state in ("done", "authorized") else "error",

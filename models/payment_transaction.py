@@ -94,7 +94,15 @@ class PaymentTransaction(models.Model):
         return self.reference
 
     def _send_payment_request(self):
-        """Override of `payment` to create a Clover charge."""
+        """Override of `payment` to create a Clover charge.
+
+        All exit paths set a definitive transaction state (done / authorized
+        / pending / cancel / error) so the row is always visible in the
+        Transaction Log. Unhandled exceptions are caught and converted to
+        ``state='error'`` with a descriptive message so a Clover outage,
+        network blip, or malformed response never causes a silent rollback
+        of the transaction row by the controller.
+        """
         if self.provider_code != "clover":
             return super()._send_payment_request()
 
@@ -104,20 +112,26 @@ class PaymentTransaction(models.Model):
             self._set_error(_("No card token received from Clover."))
             return
 
-        amount_minor = payment_utils.to_minor_currency_units(
-            self.amount, self.currency_id
-        )
-        payload = {
-            "amount": amount_minor,
-            "currency": self.currency_id.name.lower(),
-            "source": source_token,
-            "description": self._clover_build_description(),
-            "external_reference_id": self.reference,
-            "capture": not self.provider_id.capture_manually,
-        }
-
-        if self.partner_email:
-            payload["receipt_email"] = self.partner_email
+        try:
+            amount_minor = payment_utils.to_minor_currency_units(
+                self.amount, self.currency_id
+            )
+            payload = {
+                "amount": amount_minor,
+                "currency": self.currency_id.name.lower(),
+                "source": source_token,
+                "description": self._clover_build_description(),
+                "external_reference_id": self.reference,
+                "capture": not self.provider_id.capture_manually,
+            }
+            if self.partner_email:
+                payload["receipt_email"] = self.partner_email
+        except Exception as e:  # noqa: BLE001
+            _logger.exception(
+                "Clover: failed to build charge payload for %s", self.reference
+            )
+            self._set_error(_("Could not build Clover charge payload: %s") % e)
+            return
 
         try:
             response = self.provider_id._clover_make_request(
@@ -127,15 +141,32 @@ class PaymentTransaction(models.Model):
                 ),
             )
         except ValidationError as e:
+            # Expected error class raised by _send_api_request when Clover
+            # returns a 4xx/5xx — message already user-friendly.
             self._set_error(str(e))
             return
+        except Exception as e:  # noqa: BLE001
+            # Network errors, JSON decode errors, etc.
+            _logger.exception(
+                "Clover: unexpected error calling charges API for %s",
+                self.reference,
+            )
+            self._set_error(_("Could not reach Clover: %s") % e)
+            return
 
-        # Build payment_data and process
-        payment_data = {
-            "reference": self.reference,
-            "charge": response,
-        }
-        self._process("clover", payment_data)
+        # Build payment_data and process — wrap so a malformed Clover
+        # response or a bug in _apply_updates also leaves a tidy trail.
+        try:
+            self._process("clover", {
+                "reference": self.reference,
+                "charge": response,
+            })
+        except Exception as e:  # noqa: BLE001
+            _logger.exception(
+                "Clover: error processing charge response for %s",
+                self.reference,
+            )
+            self._set_error(_("Error processing Clover response: %s") % e)
 
     # ------------------------------------------------------------------
     # Capture (for manual capture mode)
