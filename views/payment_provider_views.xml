@@ -18,13 +18,16 @@
                 <group invisible="code != 'clover'" string="Clover API Credentials">
                     <field name="clover_api_key"
                            password="True"
-                           placeholder="e.g. xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+                           placeholder="Ecommerce eComm Iframe → PRIVATE token (charges/refunds)"
                            required="state == 'enabled' and code == 'clover'"/>
+                    <field name="clover_platform_api_key"
+                           password="True"
+                           placeholder="REST API token with Inventory READ (item sync) — optional"/>
                     <field name="clover_pakms_key"
-                           placeholder="Your public tokenizer API key"
+                           placeholder="Ecommerce eComm Iframe → PUBLIC token (browser tokenization)"
                            required="state == 'enabled' and code == 'clover'"/>
                     <field name="clover_merchant_id"
-                           placeholder="e.g. ABC123DEF456"
+                           placeholder="e.g. 100235230883"
                            required="state == 'enabled' and code == 'clover'"/>
                     <field name="clover_webhook_secret"
                            password="True"

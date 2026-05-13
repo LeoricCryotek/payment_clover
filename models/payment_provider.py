@@ -29,10 +29,26 @@ class PaymentProvider(models.Model):
     )
 
     clover_api_key = fields.Char(
-        string="API Key (Bearer Token)",
-        help="The Clover merchant API token used for server-to-server "
-             "requests (charges, refunds, etc.). Get this from your "
-             "Clover merchant dashboard under API Tokens.",
+        string="Ecommerce Private Key",
+        help="The Clover Ecommerce API PRIVATE token, used for "
+             "server-to-server charge/refund/capture calls against "
+             "scl.clover.com (Ecommerce service). Get this from your "
+             "Clover Merchant Dashboard → Settings → Ecommerce → "
+             "Ecommerce API tokens → 'Clover eComm Iframe' → "
+             "click the eye icon next to PRIVATE token and copy. "
+             "Distinct from the Platform REST API token below.",
+        copy=False,
+        groups="base.group_system",
+    )
+    clover_platform_api_key = fields.Char(
+        string="Platform REST API Token",
+        help="The Clover Platform (REST) API token, used only for "
+             "item/inventory sync against api.clover.com (Platform "
+             "service). Get this from your Clover Merchant Dashboard "
+             "→ Settings → API Tokens, with Inventory READ permission "
+             "checked at minimum. Leave blank to fall back to the "
+             "Ecommerce Private Key (which will only work if you have "
+             "a single token authorised for both services).",
         copy=False,
         groups="base.group_system",
     )
@@ -242,8 +258,16 @@ class PaymentProvider(models.Model):
         self.ensure_one()
         base = self._clover_get_api_url("platform")
         url = f"{base}{path}"
+        # Prefer the Platform REST token for api.clover.com calls; fall
+        # back to the Ecommerce private key only when no Platform token
+        # has been configured, in case a user has a single token
+        # authorised for both services.
+        platform_token = (
+            self.sudo().clover_platform_api_key
+            or self.sudo().clover_api_key
+        )
         headers = {
-            "Authorization": f"Bearer {self.sudo().clover_api_key}",
+            "Authorization": f"Bearer {platform_token}",
             "Accept": "application/json",
         }
         _logger.info("Clover platform request: %s %s", method, url)
