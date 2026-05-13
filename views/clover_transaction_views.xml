@@ -1,0 +1,121 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- ============================================================ -->
+    <!-- Clover Transactions — Dedicated List View                    -->
+    <!-- ============================================================ -->
+    <record id="clover_transaction_view_list" model="ir.ui.view">
+        <field name="name">payment.transaction.clover.list</field>
+        <field name="model">payment.transaction</field>
+        <field name="priority">99</field>
+        <field name="arch" type="xml">
+            <list string="Clover Transaction Log" create="0" edit="0"
+                  decoration-success="state == 'done'"
+                  decoration-warning="state == 'pending'"
+                  decoration-danger="state in ('error', 'cancel')"
+                  decoration-info="state == 'authorized'">
+                <field name="create_date" string="Date"/>
+                <field name="reference" string="Reference"/>
+                <field name="clover_charge_id" string="Clover ID"
+                       optional="show"/>
+                <field name="partner_name" string="Customer"/>
+                <field name="operation" string="Type"
+                       widget="badge"
+                       decoration-info="operation == 'online_redirect'"
+                       decoration-warning="operation == 'refund'"
+                       decoration-success="operation == 'online_direct'"/>
+                <field name="state" string="Status"
+                       widget="badge"
+                       decoration-success="state == 'done'"
+                       decoration-warning="state == 'pending'"
+                       decoration-danger="state in ('error', 'cancel')"
+                       decoration-info="state == 'authorized'"/>
+                <field name="amount" string="Amount" sum="Total"/>
+                <field name="currency_id" string="Currency"
+                       optional="hidden"/>
+                <field name="provider_reference" string="Provider Ref"
+                       optional="hidden"/>
+                <field name="state_message" string="Message"
+                       optional="hidden"/>
+            </list>
+        </field>
+    </record>
+
+    <!-- ============================================================ -->
+    <!-- Clover Transactions — Search View                            -->
+    <!-- ============================================================ -->
+    <record id="clover_transaction_view_search" model="ir.ui.view">
+        <field name="name">payment.transaction.clover.search</field>
+        <field name="model">payment.transaction</field>
+        <field name="priority">99</field>
+        <field name="arch" type="xml">
+            <search string="Search Clover Transactions">
+                <field name="reference"/>
+                <field name="partner_name"/>
+                <field name="clover_charge_id"/>
+                <field name="provider_reference"/>
+                <separator/>
+                <filter name="filter_done" string="Confirmed"
+                        domain="[('state', '=', 'done')]"/>
+                <filter name="filter_authorized" string="Authorized"
+                        domain="[('state', '=', 'authorized')]"/>
+                <filter name="filter_pending" string="Pending"
+                        domain="[('state', '=', 'pending')]"/>
+                <filter name="filter_error" string="Error"
+                        domain="[('state', '=', 'error')]"/>
+                <filter name="filter_cancel" string="Canceled"
+                        domain="[('state', '=', 'cancel')]"/>
+                <separator/>
+                <filter name="filter_charges" string="Charges"
+                        domain="[('operation', 'in', ['online_direct', 'online_redirect', 'online_token'])]"/>
+                <filter name="filter_refunds" string="Refunds"
+                        domain="[('operation', '=', 'refund')]"/>
+                <separator/>
+                <filter name="filter_today" string="Today"
+                        domain="[('create_date', '>=', context_today().strftime('%%Y-%%m-%%d'))]"/>
+                <filter name="filter_this_week" string="This Week"
+                        domain="[('create_date', '>=', (context_today() - datetime.timedelta(days=7)).strftime('%%Y-%%m-%%d'))]"/>
+                <filter name="filter_this_month" string="This Month"
+                        domain="[('create_date', '>=', (context_today() - datetime.timedelta(days=30)).strftime('%%Y-%%m-%%d'))]"/>
+                <separator/>
+                <group>
+                    <filter name="group_state" string="State"
+                            context="{'group_by': 'state'}"/>
+                    <filter name="group_operation" string="Type"
+                            context="{'group_by': 'operation'}"/>
+                    <filter name="group_partner" string="Customer"
+                            context="{'group_by': 'partner_name'}"/>
+                    <filter name="group_date" string="Date"
+                            context="{'group_by': 'create_date:day'}"/>
+                    <filter name="group_month" string="Month"
+                            context="{'group_by': 'create_date:month'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <!-- ============================================================ -->
+    <!-- Clover Transactions — Action (direct access via menu)        -->
+    <!-- ============================================================ -->
+    <record id="action_clover_transactions" model="ir.actions.act_window">
+        <field name="name">Clover Transactions</field>
+        <field name="res_model">payment.transaction</field>
+        <field name="view_mode">list,form</field>
+        <field name="view_id" ref="clover_transaction_view_list"/>
+        <field name="search_view_id" ref="clover_transaction_view_search"/>
+        <field name="domain">[('provider_code', '=', 'clover')]</field>
+        <field name="context">{
+            'search_default_filter_this_month': 1,
+        }</field>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">
+                No Clover transactions found.
+            </p>
+            <p>
+                Transactions will appear here as payments are processed
+                through the Clover payment provider.
+            </p>
+        </field>
+    </record>
+
+</odoo>

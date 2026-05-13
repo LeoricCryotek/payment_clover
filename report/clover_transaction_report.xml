@@ -1,0 +1,228 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- ============================================================ -->
+    <!-- Report action definition                                     -->
+    <!-- ============================================================ -->
+    <record id="action_report_clover_transaction_log" model="ir.actions.report">
+        <field name="name">Clover Transaction Log</field>
+        <field name="model">clover.transaction.report.wizard</field>
+        <field name="report_type">qweb-pdf</field>
+        <field name="report_name">payment_clover.report_clover_transaction_log</field>
+        <field name="report_file">payment_clover.report_clover_transaction_log</field>
+        <field name="print_report_name">
+            'Clover_Transaction_Log_%s_%s' % (object.date_from, object.date_to)
+        </field>
+        <field name="binding_type">report</field>
+    </record>
+
+    <!-- ============================================================ -->
+    <!-- QWeb template                                                -->
+    <!-- ============================================================ -->
+    <template id="report_clover_transaction_log">
+        <t t-call="web.html_container">
+            <t t-foreach="docs" t-as="wizard">
+                <t t-call="web.external_layout">
+                    <div class="page">
+
+                        <!-- Title -->
+                        <h2 class="text-center mb-3">
+                            Clover Transaction Log
+                        </h2>
+                        <div class="text-center mb-4" style="color: #666;">
+                            <strong>Period:</strong>
+                            <t t-out="data.get('date_from', '')"/> to
+                            <t t-out="data.get('date_to', '')"/>
+                            <t t-if="data.get('state_filter') and data['state_filter'] != 'all'">
+                                &amp;nbsp;|&amp;nbsp;
+                                <strong>State:</strong>
+                                <t t-out="data['state_filter']"/>
+                            </t>
+                        </div>
+
+                        <!-- Fetch transactions -->
+                        <t t-set="transactions"
+                           t-value="env['payment.transaction'].browse(data.get('transaction_ids', []))"/>
+
+                        <!-- Summary boxes -->
+                        <t t-set="total_charges" t-value="0"/>
+                        <t t-set="total_refunds" t-value="0"/>
+                        <t t-set="count_charges" t-value="0"/>
+                        <t t-set="count_refunds" t-value="0"/>
+                        <t t-foreach="transactions" t-as="tx">
+                            <t t-if="tx.operation == 'refund'">
+                                <t t-set="total_refunds" t-value="total_refunds + tx.amount"/>
+                                <t t-set="count_refunds" t-value="count_refunds + 1"/>
+                            </t>
+                            <t t-else="">
+                                <t t-set="total_charges" t-value="total_charges + tx.amount"/>
+                                <t t-set="count_charges" t-value="count_charges + 1"/>
+                            </t>
+                        </t>
+
+                        <div class="row mb-4">
+                            <div class="col-4 text-center">
+                                <div style="border: 1px solid #dee2e6; border-radius: 4px; padding: 10px;">
+                                    <div style="font-size: 11px; color: #666;">
+                                        TOTAL TRANSACTIONS
+                                    </div>
+                                    <div style="font-size: 20px; font-weight: bold;">
+                                        <t t-out="len(transactions)"/>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-4 text-center">
+                                <div style="border: 1px solid #dee2e6; border-radius: 4px; padding: 10px;">
+                                    <div style="font-size: 11px; color: #28a745;">
+                                        CHARGES (<t t-out="count_charges"/>)
+                                    </div>
+                                    <div style="font-size: 20px; font-weight: bold; color: #28a745;">
+                                        $<t t-out="'%.2f' % total_charges"/>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-4 text-center">
+                                <div style="border: 1px solid #dee2e6; border-radius: 4px; padding: 10px;">
+                                    <div style="font-size: 11px; color: #dc3545;">
+                                        REFUNDS (<t t-out="count_refunds"/>)
+                                    </div>
+                                    <div style="font-size: 20px; font-weight: bold; color: #dc3545;">
+                                        $<t t-out="'%.2f' % total_refunds"/>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Transaction table -->
+                        <table class="table table-sm table-striped"
+                               style="font-size: 11px;">
+                            <thead>
+                                <tr style="background-color: #343a40; color: white;">
+                                    <th>Date</th>
+                                    <th>Reference</th>
+                                    <th>Customer</th>
+                                    <th>Type</th>
+                                    <th>Status</th>
+                                    <th class="text-end">Amount</th>
+                                    <th>Clover ID</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <t t-foreach="transactions" t-as="tx">
+                                    <tr>
+                                        <td>
+                                            <t t-out="tx.create_date.strftime('%m/%d/%Y %I:%M %p')"
+                                               t-if="tx.create_date"/>
+                                        </td>
+                                        <td>
+                                            <t t-out="tx.reference"/>
+                                        </td>
+                                        <td>
+                                            <t t-out="tx.partner_name or ''"/>
+                                        </td>
+                                        <td>
+                                            <t t-if="tx.operation == 'refund'">
+                                                <span style="color: #dc3545; font-weight: bold;">
+                                                    Refund
+                                                </span>
+                                            </t>
+                                            <t t-elif="tx.operation == 'online_direct'">
+                                                Charge
+                                            </t>
+                                            <t t-elif="tx.operation == 'online_redirect'">
+                                                Charge
+                                            </t>
+                                            <t t-elif="tx.operation == 'online_token'">
+                                                Token
+                                            </t>
+                                            <t t-elif="tx.operation == 'validation'">
+                                                Validation
+                                            </t>
+                                            <t t-else="">
+                                                <t t-out="tx.operation or ''"/>
+                                            </t>
+                                        </td>
+                                        <td>
+                                            <t t-if="tx.state == 'done'">
+                                                <span class="badge"
+                                                      style="background-color: #28a745;">
+                                                    Done
+                                                </span>
+                                            </t>
+                                            <t t-elif="tx.state == 'authorized'">
+                                                <span class="badge"
+                                                      style="background-color: #17a2b8;">
+                                                    Authorized
+                                                </span>
+                                            </t>
+                                            <t t-elif="tx.state == 'pending'">
+                                                <span class="badge"
+                                                      style="background-color: #ffc107; color: #212529;">
+                                                    Pending
+                                                </span>
+                                            </t>
+                                            <t t-elif="tx.state == 'cancel'">
+                                                <span class="badge"
+                                                      style="background-color: #6c757d;">
+                                                    Canceled
+                                                </span>
+                                            </t>
+                                            <t t-elif="tx.state == 'error'">
+                                                <span class="badge"
+                                                      style="background-color: #dc3545;">
+                                                    Error
+                                                </span>
+                                            </t>
+                                            <t t-else="">
+                                                <span class="badge"
+                                                      style="background-color: #adb5bd;">
+                                                    <t t-out="tx.state or 'Draft'"/>
+                                                </span>
+                                            </t>
+                                        </td>
+                                        <td class="text-end">
+                                            <t t-if="tx.operation == 'refund'">
+                                                <span style="color: #dc3545;">
+                                                    ($<t t-out="'%.2f' % abs(tx.amount)"/>)
+                                                </span>
+                                            </t>
+                                            <t t-else="">
+                                                $<t t-out="'%.2f' % tx.amount"/>
+                                            </t>
+                                        </td>
+                                        <td style="font-size: 10px; color: #666;">
+                                            <t t-out="tx.clover_charge_id or ''"/>
+                                        </td>
+                                    </tr>
+                                </t>
+                            </tbody>
+                            <tfoot>
+                                <tr style="font-weight: bold; border-top: 2px solid #343a40;">
+                                    <td colspan="5" class="text-end">
+                                        Net Total:
+                                    </td>
+                                    <td class="text-end">
+                                        $<t t-out="'%.2f' % (total_charges - abs(total_refunds))"/>
+                                    </td>
+                                    <td/>
+                                </tr>
+                            </tfoot>
+                        </table>
+
+                        <!-- Footer note -->
+                        <div class="mt-4" style="font-size: 10px; color: #999;">
+                            <em>
+                                Generated on
+                                <t t-out="context_timestamp(datetime.datetime.now()).strftime('%m/%d/%Y at %I:%M %p')"/>
+                                by
+                                <t t-out="env.user.name"/>
+                            </em>
+                        </div>
+
+                    </div>
+                </t>
+            </t>
+        </t>
+    </template>
+
+</odoo>

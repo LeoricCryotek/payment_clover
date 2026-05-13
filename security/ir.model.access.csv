@@ -1,3 +1,4 @@
 id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
 access_clover_item_user,clover.item.user,model_clover_item,base.group_user,1,0,0,0
 access_clover_item_manager,clover.item.manager,model_clover_item,account.group_account_manager,1,1,1,1
+access_clover_report_wizard_manager,clover.transaction.report.wizard.manager,model_clover_transaction_report_wizard,account.group_account_manager,1,1,1,1

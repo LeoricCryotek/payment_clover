@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 {
     "name": "Payment Provider: Clover",
-    "version": "19.0.1.2",
+    "version": "19.0.1.3",
     "category": "Accounting/Payment Providers",
     "summary": "Accept payments via Clover (charges, refunds, auth/capture).",
     "description": """
@@ -38,6 +38,9 @@ payment
         "security/ir.model.access.csv",
         "views/payment_provider_views.xml",
         "views/payment_clover_templates.xml",
+        "views/clover_transaction_views.xml",
+        "wizard/clover_transaction_report_wizard_views.xml",
+        "report/clover_transaction_report.xml",
         "views/payment_terminal_views.xml",
         "data/payment_provider_data.xml",
         "data/payment_method_data.xml",

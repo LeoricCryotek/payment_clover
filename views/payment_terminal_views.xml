@@ -15,11 +15,28 @@
         <field name="target">current</field>
     </record>
 
-    <!-- Top-level menu entry for easy access -->
-    <menuitem id="menu_clover_terminal_root"
-              name="Clover Terminal"
-              action="action_clover_payment_terminal"
+    <!-- Top-level Clover menu with sub-items -->
+    <menuitem id="menu_clover_root"
+              name="Clover"
               web_icon="payment_clover,static/description/icon.png"
               sequence="200"/>
+
+    <menuitem id="menu_clover_terminal"
+              name="Payment Terminal"
+              parent="menu_clover_root"
+              action="action_clover_payment_terminal"
+              sequence="10"/>
+
+    <menuitem id="menu_clover_transactions"
+              name="Transaction Log"
+              parent="menu_clover_root"
+              action="action_clover_transactions"
+              sequence="20"/>
+
+    <menuitem id="menu_clover_report_wizard"
+              name="Transaction Report"
+              parent="menu_clover_root"
+              action="action_clover_transaction_report_wizard"
+              sequence="30"/>
 
 </odoo>
