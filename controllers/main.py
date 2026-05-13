@@ -316,11 +316,18 @@ class CloverController(http.Controller):
             return {"status": "error", "message": "Invalid currency or partner."}
 
         # payment.transaction.payment_method_id is required in Odoo 19.
-        # Prefer the 'card' method linked to this provider; fall back to
-        # any other active method on the provider; final fallback is a
-        # global search for an active 'card' method. If none can be
-        # found the provider is misconfigured — surface that clearly so
-        # an admin knows to re-run the install hook / link a method.
+        # Resolution order:
+        #   1. Active 'card' method already linked to this provider.
+        #   2. Any other active method already linked to this provider.
+        #   3. Global 'card' method (active=True) — link to provider on use.
+        #   4. AUTO-HEAL: global 'card' method that exists but is inactive
+        #      — activate it AND link to provider, then use it. This is
+        #      necessary because Odoo 19's payment._setup_provider only
+        #      copies the provider record across companies; it does NOT
+        #      activate+link the default methods, so a fresh install
+        #      leaves the link empty until an admin clicks "Enable
+        #      Payment Methods" in the Configuration tab. The auto-heal
+        #      makes the very first charge attempt fix this silently.
         payment_method = provider_sudo.payment_method_ids.filtered(
             lambda m: m.code == "card" and m.active
         )[:1]
@@ -331,19 +338,48 @@ class CloverController(http.Controller):
                 [("code", "=", "card"), ("active", "=", True)],
                 limit=1,
             )
+            if payment_method:
+                provider_sudo.sudo().write({
+                    "payment_method_ids": [(4, payment_method.id)],
+                })
+                _logger.info(
+                    "Clover provider %s self-healed: linked existing "
+                    "active 'card' payment.method (id=%s).",
+                    provider_sudo.id, payment_method.id,
+                )
         if not payment_method:
+            # Auto-heal — Card method exists in DB but ships inactive.
+            card_method = request.env["payment.method"].sudo().search(
+                [("code", "=", "card")], limit=1,
+            )
+            if card_method:
+                card_method.sudo().write({"active": True})
+                provider_sudo.sudo().write({
+                    "payment_method_ids": [(4, card_method.id)],
+                })
+                payment_method = card_method
+                _logger.warning(
+                    "Clover provider %s self-healed: activated the "
+                    "inactive 'card' payment.method (id=%s) and linked "
+                    "it. Configuration tab → 'Enable Payment Methods' "
+                    "would have done the same.",
+                    provider_sudo.id, card_method.id,
+                )
+        if not payment_method:
+            # We've exhausted every avenue — the `payment` module's
+            # default methods are missing entirely.
             _logger.error(
-                "Clover provider %s has no usable payment.method — "
-                "the post_init_hook may not have run.",
+                "Clover provider %s: no 'card' payment.method exists in "
+                "the database. The `payment` module data file did not "
+                "seed it. Try reinstalling the `payment` module.",
                 provider_sudo.id,
             )
             return {
                 "status": "error",
                 "message": _(
-                    "No payment method is linked to this Clover provider. "
-                    "An administrator needs to open the provider form and "
-                    "add 'Card' under Payment Methods, or reinstall the "
-                    "module so the post-install hook runs again."
+                    "No 'card' payment method exists in the database. "
+                    "An administrator may need to reinstall the base "
+                    "Payment module."
                 ),
             }
 
