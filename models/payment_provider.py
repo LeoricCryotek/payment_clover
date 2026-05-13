@@ -49,6 +49,16 @@ class PaymentProvider(models.Model):
              "under Account & Setup.",
         copy=False,
     )
+    clover_webhook_secret = fields.Char(
+        string="Webhook Secret",
+        help="The HMAC secret used to sign webhook deliveries from Clover. "
+             "When set, incoming webhooks must include a matching "
+             "X-Clover-Auth signature header or they are rejected with HTTP "
+             "403. Leave blank to accept all webhooks (NOT recommended in "
+             "production).",
+        copy=False,
+        groups="base.group_system",
+    )
     clover_item_ids = fields.One2many(
         "clover.item", "provider_id",
         string="Clover Items",

@@ -11,6 +11,7 @@
 import { Component, useState, onMounted, onWillUnmount } from "@odoo/owl";
 import { registry } from "@web/core/registry";
 import { useService } from "@web/core/utils/hooks";
+import { user } from "@web/core/user";
 import { _t } from "@web/core/l10n/translation";
 import { rpc } from "@web/core/network/rpc";
 
@@ -22,6 +23,7 @@ class CloverPaymentTerminal extends Component {
     setup() {
         this.notification = useService("notification");
         this.orm = useService("orm");
+        this.action = useService("action");
 
         this.state = useState({
             step: "form",         // form | processing | result
@@ -48,6 +50,8 @@ class CloverPaymentTerminal extends Component {
             resultStatus: "",
             resultMessage: "",
             resultReference: "",
+            // Permissions — controls visibility of the Settings gear.
+            isAdmin: false,
         });
 
         this._cloverInstance = null;
@@ -57,7 +61,30 @@ class CloverPaymentTerminal extends Component {
         onWillUnmount(() => this._destroyClover());
     }
 
+    /**
+     * Open the Clover provider configuration window. Wired to the gear
+     * button rendered in the terminal header for admins only — the
+     * button is hidden in the template if state.isAdmin is false, and
+     * the action it opens is itself protected by group access on
+     * action_clover_provider_config.
+     */
+    openConfiguration() {
+        this.action.doAction("payment_clover.action_clover_provider_config");
+    }
+
     async _loadData() {
+        // Permission check — decides whether the Settings gear renders.
+        // Hidden = admin can't see it; the action it opens is also
+        // group-protected so this is purely a UX nicety, not the
+        // security boundary.
+        try {
+            this.state.isAdmin = await user.hasGroup(
+                "payment_clover.group_clover_admin"
+            );
+        } catch (_e) {
+            this.state.isAdmin = false;
+        }
+
         // Load Clover providers
         const providers = await this.orm.searchRead(
             "payment.provider",
@@ -211,9 +238,10 @@ class CloverPaymentTerminal extends Component {
             const pakmsKey = provider.clover_pakms_key;
             const merchantId = provider.clover_merchant_id;
             const envLabel = provider.state === "test" ? "SANDBOX" : "PRODUCTION";
+            // Avoid logging any portion of credentials, even prefixes — keep
+            // the diagnostic line useful but credential-free.
             console.log(
                 `[Clover Terminal] Initializing in ${envLabel} mode. ` +
-                `PAKMS key starts with: ${pakmsKey.substring(0, 8)}… ` +
                 `Merchant ID: ${merchantId || "(not set)"}`
             );
 

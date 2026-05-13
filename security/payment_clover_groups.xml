@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data noupdate="1">
+
+        <!--
+            Odoo 19 access-group schema:
+              ir.module.category  ←  res.groups.privilege  ←  res.groups
+                                       (the "Privilege")        (groups)
+
+            In Odoo 18 and earlier res.groups had `category_id` directly
+            pointing at ir.module.category; that field was removed in
+            Odoo 19 and replaced by `privilege_id` pointing at the new
+            res.groups.privilege model. Trying to set category_id on a
+            group in 19 raises:
+              ValueError: Invalid field 'category_id' in 'res.groups'
+        -->
+
+        <!-- 1. Module category — shows on the user form as a section. -->
+        <record id="module_category_payment_clover" model="ir.module.category">
+            <field name="name">Clover Terminal</field>
+            <field name="description">Access to the Clover payment terminal and configuration.</field>
+            <field name="sequence">25</field>
+        </record>
+
+        <!--
+            2. Single privilege under that category. Multiple groups
+               sharing one privilege render as a permission dropdown
+               on the user form (same pattern used by account's
+               Accounting privilege with group_account_invoice /
+               group_account_manager).
+        -->
+        <record id="res_groups_privilege_payment_clover" model="res.groups.privilege">
+            <field name="name">Clover Terminal</field>
+            <field name="category_id" ref="module_category_payment_clover"/>
+            <field name="sequence">25</field>
+        </record>
+
+        <!--
+            3. Level 1 — User
+               Can process payments through the staff terminal, see the
+               transaction log, and read synced Clover items.
+        -->
+        <record id="group_clover_user" model="res.groups">
+            <field name="name">User</field>
+            <field name="privilege_id" ref="res_groups_privilege_payment_clover"/>
+            <field name="sequence">10</field>
+            <field name="comment">Can process payments through the Clover terminal.</field>
+        </record>
+
+        <!--
+            4. Level 2 — Administrator
+               Inherits User (so admins can also take payments) and
+               adds access to provider configuration, the transaction
+               report wizard, and Clover item maintenance.
+        -->
+        <record id="group_clover_admin" model="res.groups">
+            <field name="name">Administrator</field>
+            <field name="privilege_id" ref="res_groups_privilege_payment_clover"/>
+            <field name="sequence">20</field>
+            <field name="implied_ids" eval="[(4, ref('group_clover_user'))]"/>
+            <field name="comment">Can configure Clover providers, run transaction reports, and process payments.</field>
+        </record>
+
+    </data>
+</odoo>

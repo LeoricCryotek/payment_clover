@@ -1,0 +1,18 @@
+# Python bytecode — must NOT be tracked.
+# Stale .pyc files committed alongside .py files cause Odoo upgrades to
+# silently run old code (e.g. `from . import wizard` missing), which then
+# produces confusing errors like:
+#   No matching record found for external id 'model_<...>' in field 'Model'
+# while loading security/ir.model.access.csv.
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# IDE / OS artefacts
+.idea/
+.vscode/
+*.swp
+*~
+.DS_Store
+Thumbs.db

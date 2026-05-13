@@ -26,6 +26,9 @@
                     <field name="clover_merchant_id"
                            placeholder="e.g. ABC123DEF456"
                            required="state == 'enabled' and code == 'clover'"/>
+                    <field name="clover_webhook_secret"
+                           password="True"
+                           placeholder="Optional — HMAC secret for webhook signature verification"/>
                 </group>
             </group>
 

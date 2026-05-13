@@ -20,6 +20,29 @@ from odoo.http import request
 _logger = logging.getLogger(__name__)
 
 
+def _verify_clover_signature(raw_body, signature_header, secret):
+    """Validate a Clover webhook HMAC-SHA256 signature.
+
+    Clover signs webhook deliveries with the merchant's webhook secret
+    using HMAC-SHA256 over the raw request body. The hex digest is sent
+    in the ``X-Clover-Auth`` header.
+
+    :param bytes raw_body: The raw HTTP request body.
+    :param str signature_header: Value of the ``X-Clover-Auth`` header.
+    :param str secret: The webhook secret configured on the provider.
+    :return: True iff the signature matches.
+    :rtype: bool
+    """
+    if not secret or not signature_header:
+        return False
+    expected = hmac.new(
+        secret.encode("utf-8"),
+        raw_body,
+        hashlib.sha256,
+    ).hexdigest()
+    return hmac.compare_digest(expected, signature_header)
+
+
 class CloverController(http.Controller):
     """HTTP endpoints for Clover payment processing.
 
@@ -83,45 +106,73 @@ class CloverController(http.Controller):
         """Receive and process Clover webhook notifications.
 
         Clover webhooks are *thin* notifications — they tell us something
-        changed but we must fetch the details ourselves.
+        changed but we must fetch the details ourselves. When the
+        provider has a webhook secret configured we validate the
+        ``X-Clover-Auth`` HMAC signature and reject mismatches; if no
+        secret is configured we log a warning and accept the payload
+        (back-compat path — strongly recommended to configure a secret).
         """
+        raw_body = request.httprequest.get_data() or b""
+        signature_header = request.httprequest.headers.get("X-Clover-Auth", "")
+
         try:
-            data = request.get_json_data()
-        except Exception:
+            data = json.loads(raw_body.decode("utf-8") or "{}")
+        except (ValueError, UnicodeDecodeError):
             _logger.warning("Clover webhook: could not parse JSON body")
             return request.make_json_response(
-                {"status": "error"}, status=400
+                {"status": "error", "message": "bad json"}, status=400
             )
 
         _logger.info("Clover webhook received: %s", json.dumps(data)[:500])
 
         # Process each merchant's events
-        merchants = data.get("merchants", {})
+        merchants = data.get("merchants", {}) if isinstance(data, dict) else {}
         for merchant_id, events in merchants.items():
-            for event in events:
-                event_type = event.get("type", "")
-                object_id = event.get("objectId", "")
-
-                if not object_id:
-                    continue
-
-                # Find the provider for this merchant
-                provider_sudo = (
-                    request.env["payment.provider"]
-                    .sudo()
-                    .search([
-                        ("code", "=", "clover"),
-                        ("clover_merchant_id", "=", merchant_id),
-                        ("state", "in", ("enabled", "test")),
-                    ], limit=1)
+            # Resolve the provider once per merchant so we can check
+            # the webhook secret before consuming any events.
+            provider_sudo = (
+                request.env["payment.provider"]
+                .sudo()
+                .search([
+                    ("code", "=", "clover"),
+                    ("clover_merchant_id", "=", merchant_id),
+                    ("state", "in", ("enabled", "test")),
+                ], limit=1)
+            )
+            if not provider_sudo:
+                _logger.warning(
+                    "Clover webhook: no provider for merchant %s",
+                    merchant_id,
                 )
-                if not provider_sudo:
+                continue
+
+            secret = provider_sudo.clover_webhook_secret or ""
+            if secret:
+                if not _verify_clover_signature(
+                    raw_body, signature_header, secret
+                ):
                     _logger.warning(
-                        "Clover webhook: no provider for merchant %s",
+                        "Clover webhook: invalid signature for merchant %s",
                         merchant_id,
                     )
-                    continue
+                    return request.make_json_response(
+                        {"status": "error", "message": "invalid signature"},
+                        status=403,
+                    )
+            else:
+                _logger.warning(
+                    "Clover webhook: no webhook secret configured for "
+                    "merchant %s — accepting unverified payload. Configure "
+                    "a secret on the Clover provider to enforce signature "
+                    "verification.",
+                    merchant_id,
+                )
 
+            for event in events or []:
+                event_type = event.get("type", "")
+                object_id = event.get("objectId", "")
+                if not object_id:
+                    continue
                 self._process_webhook_event(
                     provider_sudo, event_type, object_id
                 )

@@ -10,9 +10,9 @@ import base64
 import csv
 import io
 import logging
-from datetime import date, timedelta
+from datetime import date, datetime, time
 
-from odoo import _, api, fields, models
+from odoo import _, fields, models
 from odoo.exceptions import UserError
 
 _logger = logging.getLogger(__name__)
@@ -60,18 +60,14 @@ class CloverTransactionReportWizard(models.TransientModel):
     def _build_domain(self):
         """Return a search domain for payment.transaction."""
         self.ensure_one()
+        # Bracket the user-supplied Date range with full-day datetimes so
+        # transactions created at any point during ``date_to`` are included.
+        start_dt = datetime.combine(self.date_from, time.min)
+        end_dt = datetime.combine(self.date_to, time.max)
         domain = [
             ('provider_code', '=', 'clover'),
-            ('create_date', '>=', fields.Datetime.to_string(
-                fields.Datetime.start_of(
-                    fields.Datetime.from_string(str(self.date_from)), 'day'
-                )
-            )),
-            ('create_date', '<=', fields.Datetime.to_string(
-                fields.Datetime.end_of(
-                    fields.Datetime.from_string(str(self.date_to)), 'day'
-                )
-            )),
+            ('create_date', '>=', start_dt),
+            ('create_date', '<=', end_dt),
         ]
         if self.state_filter and self.state_filter != 'all':
             domain.append(('state', '=', self.state_filter))
