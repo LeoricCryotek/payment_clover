@@ -279,10 +279,30 @@ class PaymentTransaction(models.Model):
             parts = [ctx_desc]
             if self.partner_name:
                 parts.append(self.partner_name)
+            # Cashier-name marker: Clover's "Employee" column on the
+            # Payment screen always shows the API-token owner (no way
+            # to override that from the Ecommerce API), so we surface
+            # the actual Odoo user in the Note instead. Admins scanning
+            # the Clover dashboard see who processed each charge
+            # without bouncing to Odoo.
+            cashier = (
+                self.env.user.name if self.env.user
+                and self.env.user.id != self.env.ref('base.user_root').id
+                else "Odoo"
+            )
+            parts.append(f"by {cashier}")
             # Append short ref in brackets so reconciliation still works
             # without it dominating the readable portion.
             parts.append(f"[{self.reference}]")
             return " — ".join(parts)
+
+        # Same cashier-name lookup used by the non-terminal branches
+        # below so the Note consistently shows who processed it.
+        cashier = (
+            self.env.user.name if self.env.user
+            and self.env.user.id != self.env.ref('base.user_root').id
+            else "Odoo"
+        )
 
         # 2) Invoice lines (account_payment adds invoice_ids)
         if hasattr(self, "invoice_ids") and self.invoice_ids:
@@ -296,6 +316,7 @@ class PaymentTransaction(models.Model):
             parts = [f"{inv.name}: {label_items}"]
             if self.partner_name:
                 parts.append(self.partner_name)
+            parts.append(f"by {cashier}")
             return " — ".join(parts)
 
         # 3) Sale order lines (sale module adds sale_order_ids)
@@ -310,6 +331,7 @@ class PaymentTransaction(models.Model):
             parts = [f"{so.name}: {label_items}"]
             if self.partner_name:
                 parts.append(self.partner_name)
+            parts.append(f"by {cashier}")
             return " — ".join(parts)
 
         # 4) Fallback — just the reference
@@ -377,6 +399,17 @@ class PaymentTransaction(models.Model):
             if order_id:
                 # Pay-the-order endpoint. `ecomind: "ecom"` is the
                 # standard ecommerce indicator required by /pay.
+                #
+                # Note re: the Payment "Note" field — when charges go
+                # through the older /v1/charges endpoint, Clover uses
+                # the body's `description` as the Payment Note. The
+                # /pay endpoint does NOT auto-populate Note from the
+                # parent Order's description, so we re-send our
+                # description (and a duplicate `note` field as belt-
+                # and-suspenders) here so the Payment screen still
+                # carries the "item — customer — by cashier — [ref]"
+                # information when Daniel scans the Clover dashboard.
+                description = self._clover_build_description()
                 endpoint = f"v1/orders/{order_id}/pay"
                 payload = {
                     "ecomind": "ecom",
@@ -384,6 +417,8 @@ class PaymentTransaction(models.Model):
                     "currency": self.currency_id.name.lower(),
                     "source": source_token,
                     "external_reference_id": ext_ref,
+                    "description": description,
+                    "note": description,
                     # Capture flag is intentionally OMITTED here:
                     # /pay always immediate-captures, and sending
                     # capture=false returns 400.
