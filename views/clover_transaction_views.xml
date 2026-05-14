@@ -16,8 +16,12 @@
                   decoration-info="state == 'authorized'">
                 <field name="create_date" string="Date"/>
                 <field name="reference" string="Reference"/>
-                <field name="clover_charge_id" string="Clover ID"
+                <field name="clover_charge_id" string="Clover Charge ID"
                        optional="show"/>
+                <field name="clover_order_id" string="Clover Order ID"
+                       optional="hide"/>
+                <field name="clover_external_ref" string="Ext Ref"
+                       optional="hide"/>
                 <field name="partner_name" string="Customer"/>
                 <field name="operation" string="Type"
                        widget="badge"

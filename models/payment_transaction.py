@@ -43,6 +43,15 @@ class PaymentTransaction(models.Model):
              "external_reference_id. Used to map Clover webhooks back "
              "to this transaction.",
     )
+    clover_order_id = fields.Char(
+        "Clover Order ID",
+        readonly=True,
+        copy=False,
+        help="The Clover order created before the charge, so the Clover "
+             "dashboard renders real line items instead of a generic "
+             "'Item 1'. Linked to the charge via order_id in the charge "
+             "payload.",
+    )
 
     # ------------------------------------------------------------------
     # Processing values (passed to inline form JS)
@@ -98,19 +107,171 @@ class PaymentTransaction(models.Model):
         ).hexdigest()
         return f"cl{digest[:10]}"
 
+    def _clover_build_line_items(self):
+        """Return a list of Clover line-item dicts for this transaction.
+
+        Priority order matches ``_clover_build_description`` so the
+        Clover dashboard's Order display and the charge description
+        tell the same story:
+
+        1. **Terminal flow** — context ``clover_charge_description``
+           supplies the item name (this is what the cashier picked
+           from the dropdown), so we emit one line item with that name
+           and the full transaction amount.
+        2. **Invoice flow** — if invoice_ids exists (set when
+           account_payment processes an invoice via Clover), iterate
+           the invoice lines and emit one Clover line item per Odoo
+           invoice line, preserving names and amounts.
+        3. **Sale order flow** — similar to invoices, for sale.order
+           lines.
+        4. **Fallback** — single generic line item named after the
+           reference, full amount.
+
+        Amounts are returned in minor currency units (cents) to match
+        what the charges API expects.
+        """
+        self.ensure_one()
+
+        def _to_minor(amount):
+            return payment_utils.to_minor_currency_units(
+                amount, self.currency_id
+            )
+
+        # 1) Terminal — single item using the cashier-supplied description
+        ctx_desc = self.env.context.get("clover_charge_description", "")
+        if ctx_desc:
+            return [{
+                "name": ctx_desc[:127] or "Payment",  # Clover caps name at 127
+                "amount": _to_minor(self.amount),
+                "quantity": 1,
+            }]
+
+        # 2) Invoice lines (account module adds invoice_ids via account_payment)
+        if hasattr(self, "invoice_ids") and self.invoice_ids:
+            inv = self.invoice_ids[0]
+            product_lines = inv.invoice_line_ids.filtered(
+                lambda l: l.display_type == "product"
+            )
+            if product_lines:
+                items = []
+                for line in product_lines:
+                    items.append({
+                        "name": (line.name or line.product_id.display_name
+                                 or "Line item")[:127],
+                        "amount": _to_minor(line.price_total),
+                        "quantity": int(line.quantity) if line.quantity else 1,
+                    })
+                return items
+
+        # 3) Sale order lines (sale module adds sale_order_ids)
+        if hasattr(self, "sale_order_ids") and self.sale_order_ids:
+            so = self.sale_order_ids[0]
+            order_lines = so.order_line.filtered(
+                lambda l: not l.display_type
+            )
+            if order_lines:
+                items = []
+                for line in order_lines:
+                    items.append({
+                        "name": (line.name or line.product_id.display_name
+                                 or "Line item")[:127],
+                        "amount": _to_minor(line.price_total),
+                        "quantity": int(line.product_uom_qty) if line.product_uom_qty else 1,
+                    })
+                return items
+
+        # 4) Fallback — single generic item
+        return [{
+            "name": (self.reference or "Payment")[:127],
+            "amount": _to_minor(self.amount),
+            "quantity": 1,
+        }]
+
+    def _clover_create_order(self):
+        """Create a Clover Order with real line items and return its ID.
+
+        Called from ``_send_payment_request`` before the charge so that
+        the Clover dashboard shows the actual item name(s) instead of a
+        generic 'Item 1' line auto-generated when only a Charge is
+        created.
+
+        Returns the Clover order_id on success, or ``None`` on any
+        failure — callers should fall back to charge-only mode in
+        that case so a Clover Orders API outage doesn't break payment
+        processing.
+        """
+        self.ensure_one()
+        try:
+            line_items = self._clover_build_line_items()
+            if not line_items:
+                return None
+
+            payload = {
+                "currency": self.currency_id.name.lower(),
+                "items": line_items,
+            }
+            if self.partner_email:
+                payload["email"] = self.partner_email
+
+            response = self.provider_id._clover_make_request(
+                "POST", "v1/orders", payload=payload,
+                idempotency_key=payment_utils.generate_idempotency_key(
+                    self, scope="orders"
+                ),
+            )
+            order_id = (response or {}).get("id")
+            if order_id:
+                _logger.info(
+                    "Clover: created order %s for tx %s with %d line items",
+                    order_id, self.reference, len(line_items),
+                )
+                return order_id
+            _logger.warning(
+                "Clover: order response missing 'id' for tx %s; response=%s",
+                self.reference, str(response)[:300],
+            )
+            return None
+        except Exception as e:  # noqa: BLE001
+            # Don't fail the charge if order creation fails — Clover
+            # will just show a generic line item, which is what we had
+            # before this feature was added.
+            _logger.warning(
+                "Clover: order creation failed for tx %s (%s) — "
+                "falling back to charge-only.",
+                self.reference, e,
+            )
+            return None
+
     def _clover_build_description(self):
         """Build a human-readable description for the Clover charge.
 
+        This string becomes the **"Note"** field on the Clover dashboard's
+        Payment detail screen, so we put the most-useful info first:
+        item name, then customer, then the Odoo reference as a tail
+        identifier. The external_reference_id field carries the same
+        reference in a structured form, so the cashier doesn't need
+        the long ``tx-YYYYMMDDHHMMSS`` to lead the description.
+
         Priority:
-        1. Terminal — description passed via context (item name / staff note)
-        2. Invoice — "INV/2026/00015: Dues, Event Ticket" (line names)
-        3. Sale order — "S00042: Dues, Event Ticket" (line names)
+        1. Terminal — context description (cashier-selected item) first
+        2. Invoice — invoice number + line names
+        3. Sale order — order number + line names
         4. Fallback — the Odoo transaction reference
+
+        For 1, 2, 3 we append the partner name when available so the
+        Payment list at a glance reads "ENF (Elks Nat'l Fnd) — Christopher
+        Spataro" instead of an opaque transaction id.
         """
         # 1) Terminal description (staff entered or auto-filled from item)
         ctx_desc = self.env.context.get("clover_charge_description", "")
         if ctx_desc:
-            return f"{self.reference} — {ctx_desc}"
+            parts = [ctx_desc]
+            if self.partner_name:
+                parts.append(self.partner_name)
+            # Append short ref in brackets so reconciliation still works
+            # without it dominating the readable portion.
+            parts.append(f"[{self.reference}]")
+            return " — ".join(parts)
 
         # 2) Invoice lines (account_payment adds invoice_ids)
         if hasattr(self, "invoice_ids") and self.invoice_ids:
@@ -118,10 +279,13 @@ class PaymentTransaction(models.Model):
             lines = inv.invoice_line_ids.filtered(
                 lambda l: l.display_type == "product"
             )
-            if lines:
-                items = ", ".join(lines.mapped("name")[:10])
-                return f"{inv.name}: {items}"
-            return f"{inv.name}: {self.reference}"
+            label_items = (
+                ", ".join(lines.mapped("name")[:10]) if lines else self.reference
+            )
+            parts = [f"{inv.name}: {label_items}"]
+            if self.partner_name:
+                parts.append(self.partner_name)
+            return " — ".join(parts)
 
         # 3) Sale order lines (sale module adds sale_order_ids)
         if hasattr(self, "sale_order_ids") and self.sale_order_ids:
@@ -129,12 +293,15 @@ class PaymentTransaction(models.Model):
             lines = so.order_line.filtered(
                 lambda l: not l.display_type
             )
-            if lines:
-                items = ", ".join(lines.mapped("name")[:10])
-                return f"{so.name}: {items}"
-            return f"{so.name}: {self.reference}"
+            label_items = (
+                ", ".join(lines.mapped("name")[:10]) if lines else self.reference
+            )
+            parts = [f"{so.name}: {label_items}"]
+            if self.partner_name:
+                parts.append(self.partner_name)
+            return " — ".join(parts)
 
-        # 4) Fallback
+        # 4) Fallback — just the reference
         return self.reference
 
     def _send_payment_request(self):
@@ -168,6 +335,15 @@ class PaymentTransaction(models.Model):
             if self.clover_external_ref != ext_ref:
                 self.clover_external_ref = ext_ref
 
+            # Create a Clover Order with real line items first so the
+            # dashboard renders the actual item names instead of a
+            # generic 'Item 1'. The charge is then attached via
+            # order_id. If order creation fails, _clover_create_order
+            # returns None and we fall back to charge-only mode.
+            order_id = self._clover_create_order()
+            if order_id and self.clover_order_id != order_id:
+                self.clover_order_id = order_id
+
             payload = {
                 "amount": amount_minor,
                 "currency": self.currency_id.name.lower(),
@@ -176,6 +352,8 @@ class PaymentTransaction(models.Model):
                 "external_reference_id": ext_ref,
                 "capture": not self.provider_id.capture_manually,
             }
+            if order_id:
+                payload["order_id"] = order_id
             if self.partner_email:
                 payload["receipt_email"] = self.partner_email
         except Exception as e:  # noqa: BLE001
