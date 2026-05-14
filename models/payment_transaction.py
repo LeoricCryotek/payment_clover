@@ -346,43 +346,53 @@ class PaymentTransaction(models.Model):
             if self.clover_external_ref != ext_ref:
                 self.clover_external_ref = ext_ref
 
-            # Create a Clover Order with real line items first so the
-            # dashboard renders the actual item names instead of a
-            # generic 'Item 1'. If order creation succeeds, we charge
-            # via POST /v1/orders/{order_id}/pay so the charge attaches
-            # to the order's existing line items. If order creation
-            # fails, we fall back to POST /v1/charges (orderless),
-            # which still works but produces the generic 'Item 1'
-            # display we had before this feature was added.
-            order_id = self._clover_create_order()
-            if order_id and self.clover_order_id != order_id:
-                self.clover_order_id = order_id
+            # Clover has TWO charge paths with different capabilities:
+            #
+            #   POST /v1/charges                  → supports capture=false
+            #                                       (pre-auth), but Clover
+            #                                       auto-creates a stub
+            #                                       order with a generic
+            #                                       "Item 1" line.
+            #
+            #   POST /v1/orders/{id}/pay          → uses real line items
+            #                                       from a pre-created
+            #                                       order, but rejects
+            #                                       capture=false with
+            #                                       "Create pre-auth for
+            #                                       an Order feature is
+            #                                       not available".
+            #
+            # Choose the path based on whether the provider is in
+            # manual-capture mode. Manual capture ⇒ legacy /v1/charges
+            # so cashiers can auth-now-and-capture-later. Auto capture
+            # ⇒ Orders + /pay so the Clover dashboard displays the real
+            # line items.
+            use_orders_flow = not self.provider_id.capture_manually
+            order_id = None
+            if use_orders_flow:
+                order_id = self._clover_create_order()
+                if order_id and self.clover_order_id != order_id:
+                    self.clover_order_id = order_id
 
             if order_id:
-                # Pay-the-order endpoint. Clover associates the charge
-                # with the order's pre-existing line items, customer
-                # email, etc.  `ecomind: "ecom"` marks this as a
-                # standard ecommerce indicator (required by the pay
-                # endpoint per Clover's docs).
+                # Pay-the-order endpoint. `ecomind: "ecom"` is the
+                # standard ecommerce indicator required by /pay.
                 endpoint = f"v1/orders/{order_id}/pay"
                 payload = {
                     "ecomind": "ecom",
                     "amount": amount_minor,
                     "currency": self.currency_id.name.lower(),
                     "source": source_token,
+                    "external_reference_id": ext_ref,
+                    # Capture flag is intentionally OMITTED here:
+                    # /pay always immediate-captures, and sending
+                    # capture=false returns 400.
                 }
-                # external_reference_id and capture are accepted by /pay
-                # in current Clover versions — include them for parity
-                # with the /v1/charges path. If Clover ever rejects an
-                # unknown field, the broad-exception handler around the
-                # request below catches it and surfaces a usable error
-                # in the Transaction Log.
-                payload["external_reference_id"] = ext_ref
-                payload["capture"] = not self.provider_id.capture_manually
             else:
-                # Fallback: orderless charge. Clover auto-creates a
-                # stub order with a generic "Item 1" line; everything
-                # else still works.
+                # Manual-capture mode (or order creation failed):
+                # use the orderless /v1/charges endpoint. Supports
+                # capture=false but the Clover dashboard will show a
+                # generic "Item 1" line on the auto-created order.
                 endpoint = "v1/charges"
                 payload = {
                     "amount": amount_minor,
