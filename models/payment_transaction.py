@@ -137,11 +137,15 @@ class PaymentTransaction(models.Model):
                 amount, self.currency_id
             )
 
-        # 1) Terminal — single item using the cashier-supplied description
+        # 1) Terminal — single item using the cashier-supplied description.
+        # Clover's per-item field is `description` (NOT `name`); using
+        # `name` would be silently ignored and the line would render as
+        # generic "Item 1" in the dashboard.
         ctx_desc = self.env.context.get("clover_charge_description", "")
         if ctx_desc:
             return [{
-                "name": ctx_desc[:127] or "Payment",  # Clover caps name at 127
+                "description": ctx_desc[:127] or "Payment",
+                "currency": self.currency_id.name.lower(),
                 "amount": _to_minor(self.amount),
                 "quantity": 1,
             }]
@@ -156,8 +160,9 @@ class PaymentTransaction(models.Model):
                 items = []
                 for line in product_lines:
                     items.append({
-                        "name": (line.name or line.product_id.display_name
+                        "description": (line.name or line.product_id.display_name
                                  or "Line item")[:127],
+                        "currency": self.currency_id.name.lower(),
                         "amount": _to_minor(line.price_total),
                         "quantity": int(line.quantity) if line.quantity else 1,
                     })
@@ -173,8 +178,9 @@ class PaymentTransaction(models.Model):
                 items = []
                 for line in order_lines:
                     items.append({
-                        "name": (line.name or line.product_id.display_name
+                        "description": (line.name or line.product_id.display_name
                                  or "Line item")[:127],
+                        "currency": self.currency_id.name.lower(),
                         "amount": _to_minor(line.price_total),
                         "quantity": int(line.product_uom_qty) if line.product_uom_qty else 1,
                     })
@@ -182,7 +188,8 @@ class PaymentTransaction(models.Model):
 
         # 4) Fallback — single generic item
         return [{
-            "name": (self.reference or "Payment")[:127],
+            "description": (self.reference or "Payment")[:127],
+            "currency": self.currency_id.name.lower(),
             "amount": _to_minor(self.amount),
             "quantity": 1,
         }]
@@ -212,6 +219,10 @@ class PaymentTransaction(models.Model):
             }
             if self.partner_email:
                 payload["email"] = self.partner_email
+            # Some Clover Order versions accept a top-level description
+            # which surfaces alongside the order in the dashboard. We
+            # include it; if the field is ignored, no harm done.
+            payload["description"] = self._clover_build_description()
 
             response = self.provider_id._clover_make_request(
                 "POST", "v1/orders", payload=payload,
@@ -337,25 +348,52 @@ class PaymentTransaction(models.Model):
 
             # Create a Clover Order with real line items first so the
             # dashboard renders the actual item names instead of a
-            # generic 'Item 1'. The charge is then attached via
-            # order_id. If order creation fails, _clover_create_order
-            # returns None and we fall back to charge-only mode.
+            # generic 'Item 1'. If order creation succeeds, we charge
+            # via POST /v1/orders/{order_id}/pay so the charge attaches
+            # to the order's existing line items. If order creation
+            # fails, we fall back to POST /v1/charges (orderless),
+            # which still works but produces the generic 'Item 1'
+            # display we had before this feature was added.
             order_id = self._clover_create_order()
             if order_id and self.clover_order_id != order_id:
                 self.clover_order_id = order_id
 
-            payload = {
-                "amount": amount_minor,
-                "currency": self.currency_id.name.lower(),
-                "source": source_token,
-                "description": self._clover_build_description(),
-                "external_reference_id": ext_ref,
-                "capture": not self.provider_id.capture_manually,
-            }
             if order_id:
-                payload["order_id"] = order_id
-            if self.partner_email:
-                payload["receipt_email"] = self.partner_email
+                # Pay-the-order endpoint. Clover associates the charge
+                # with the order's pre-existing line items, customer
+                # email, etc.  `ecomind: "ecom"` marks this as a
+                # standard ecommerce indicator (required by the pay
+                # endpoint per Clover's docs).
+                endpoint = f"v1/orders/{order_id}/pay"
+                payload = {
+                    "ecomind": "ecom",
+                    "amount": amount_minor,
+                    "currency": self.currency_id.name.lower(),
+                    "source": source_token,
+                }
+                # external_reference_id and capture are accepted by /pay
+                # in current Clover versions — include them for parity
+                # with the /v1/charges path. If Clover ever rejects an
+                # unknown field, the broad-exception handler around the
+                # request below catches it and surfaces a usable error
+                # in the Transaction Log.
+                payload["external_reference_id"] = ext_ref
+                payload["capture"] = not self.provider_id.capture_manually
+            else:
+                # Fallback: orderless charge. Clover auto-creates a
+                # stub order with a generic "Item 1" line; everything
+                # else still works.
+                endpoint = "v1/charges"
+                payload = {
+                    "amount": amount_minor,
+                    "currency": self.currency_id.name.lower(),
+                    "source": source_token,
+                    "description": self._clover_build_description(),
+                    "external_reference_id": ext_ref,
+                    "capture": not self.provider_id.capture_manually,
+                }
+                if self.partner_email:
+                    payload["receipt_email"] = self.partner_email
         except Exception as e:  # noqa: BLE001
             _logger.exception(
                 "Clover: failed to build charge payload for %s", self.reference
@@ -365,7 +403,7 @@ class PaymentTransaction(models.Model):
 
         try:
             response = self.provider_id._clover_make_request(
-                "POST", "v1/charges", payload=payload,
+                "POST", endpoint, payload=payload,
                 idempotency_key=payment_utils.generate_idempotency_key(
                     self, scope="charges"
                 ),
