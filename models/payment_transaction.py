@@ -1,7 +1,9 @@
 # -*- coding: utf-8 -*-
 # Part of Elks Lodge Odoo Modules. See LICENSE file for full copyright and licensing details.
 
+import hashlib
 import logging
+import re
 
 from odoo import _, api, fields, models
 from odoo.exceptions import ValidationError
@@ -26,6 +28,20 @@ class PaymentTransaction(models.Model):
     # Store the Clover charge ID for refunds / capture
     clover_charge_id = fields.Char(
         "Clover Charge ID", readonly=True, copy=False,
+    )
+    # Clover's Ecommerce v1/charges API caps `external_reference_id`
+    # at 12 characters (and validates a strict alphanumeric format —
+    # hyphens are rejected). Odoo's default reference `tx-YYYYMMDDHHMMSS`
+    # is 17 chars with a hyphen, so we generate a deterministic short
+    # alias from the full reference, store it on the transaction, and
+    # use that for both the outbound payload and for webhook lookups.
+    clover_external_ref = fields.Char(
+        "Clover External Ref",
+        readonly=True,
+        copy=False,
+        help="Short alphanumeric reference (≤12 chars) sent to Clover as "
+             "external_reference_id. Used to map Clover webhooks back "
+             "to this transaction.",
     )
 
     # ------------------------------------------------------------------
@@ -53,6 +69,34 @@ class PaymentTransaction(models.Model):
     # ------------------------------------------------------------------
     # Payment request (charge creation)
     # ------------------------------------------------------------------
+
+    def _clover_get_external_ref(self):
+        """Return a deterministic ≤12-char alphanumeric reference suitable
+        for Clover's ``external_reference_id`` field.
+
+        Clover's Ecommerce v1/charges API rejects values longer than 12
+        characters and rejects non-alphanumeric formats. Odoo's default
+        reference ``tx-YYYYMMDDHHMMSS`` violates both. Strategy:
+
+        1. Strip every non-alphanumeric character from ``self.reference``.
+        2. If the stripped string fits in 12 chars, use it verbatim
+           (keeps things human-readable in the Clover dashboard).
+        3. Otherwise hash the full reference with MD5 and take the
+           first 12 hex chars, prefixed with 'cl' to guarantee a stable
+           non-numeric leading char.
+
+        The result is stored on the transaction so the inverse lookup
+        (webhook → tx) can be done by exact match on
+        ``clover_external_ref``.
+        """
+        self.ensure_one()
+        stripped = re.sub(r'[^A-Za-z0-9]', '', self.reference or '')
+        if 0 < len(stripped) <= 12:
+            return stripped
+        digest = hashlib.md5(
+            (self.reference or str(self.id)).encode('utf-8')
+        ).hexdigest()
+        return f"cl{digest[:10]}"
 
     def _clover_build_description(self):
         """Build a human-readable description for the Clover charge.
@@ -116,12 +160,20 @@ class PaymentTransaction(models.Model):
             amount_minor = payment_utils.to_minor_currency_units(
                 self.amount, self.currency_id
             )
+            # Build (or reuse) the 12-char Clover external reference.
+            # We persist it BEFORE the API call so the row in the
+            # Transaction Log carries the same value Clover knows it
+            # by, even if the charge fails.
+            ext_ref = self._clover_get_external_ref()
+            if self.clover_external_ref != ext_ref:
+                self.clover_external_ref = ext_ref
+
             payload = {
                 "amount": amount_minor,
                 "currency": self.currency_id.name.lower(),
                 "source": source_token,
                 "description": self._clover_build_description(),
-                "external_reference_id": self.reference,
+                "external_reference_id": ext_ref,
                 "capture": not self.provider_id.capture_manually,
             }
             if self.partner_email:
@@ -274,19 +326,34 @@ class PaymentTransaction(models.Model):
 
     @api.model
     def _search_by_reference(self, provider_code, payment_data):
-        """Override of `payment` to find the transaction by Clover data."""
+        """Override of `payment` to find the transaction by Clover data.
+
+        Clover knows transactions by the 12-char alphanumeric value we
+        sent in ``external_reference_id`` (stored on each tx as
+        ``clover_external_ref``). Webhooks return that value back to us,
+        so we look up first by ``clover_external_ref``. We fall back to
+        the full Odoo reference for backward compatibility with rows
+        created before this short-ref scheme existed (and so the inline
+        form's return controller, which still passes the full
+        ``self.reference``, continues to work).
+        """
         if provider_code != "clover":
             return super()._search_by_reference(provider_code, payment_data)
 
         reference = payment_data.get("reference")
+        tx = self
         if reference:
             tx = self.search([
-                ("reference", "=", reference),
+                ("clover_external_ref", "=", reference),
                 ("provider_code", "=", "clover"),
-            ])
+            ], limit=1)
+            if not tx:
+                tx = self.search([
+                    ("reference", "=", reference),
+                    ("provider_code", "=", "clover"),
+                ], limit=1)
         else:
             _logger.warning("Received Clover data with missing reference")
-            tx = self
         if not tx:
             _logger.warning(
                 "No Clover transaction found for reference %s", reference
