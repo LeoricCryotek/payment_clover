@@ -383,6 +383,13 @@ class CloverController(http.Controller):
                 ),
             }
 
+        # Capture the actual logged-in cashier BEFORE we elevate to
+        # sudo. After .sudo(), `env.user` flips to the system user and
+        # Odoo's auto-set `create_uid` would record that — useless for
+        # bookkeeping. Stash the real uid here and pass it explicitly
+        # into the create vals as `clover_cashier_id`.
+        cashier_uid = request.env.user.id
+
         # Create the transaction record BEFORE attempting the charge so
         # that even a hard failure produces a payment.transaction row in
         # the Transaction Log. The cursor will commit at the end of this
@@ -404,6 +411,7 @@ class CloverController(http.Controller):
                     "currency_id": currency.id,
                     "partner_id": partner.id,
                     "operation": "online_direct",
+                    "clover_cashier_id": cashier_uid,
                 })
             )
         except Exception as e:  # noqa: BLE001

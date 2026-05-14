@@ -101,6 +101,7 @@
                                     <th>Date</th>
                                     <th>Reference</th>
                                     <th>Customer</th>
+                                    <th>Cashier</th>
                                     <th>Type</th>
                                     <th>Status</th>
                                     <th class="text-end">Amount</th>
@@ -119,6 +120,9 @@
                                         </td>
                                         <td>
                                             <t t-out="tx.partner_name or ''"/>
+                                        </td>
+                                        <td>
+                                            <t t-out="tx.clover_cashier_id.name or ''"/>
                                         </td>
                                         <td>
                                             <t t-if="tx.operation == 'refund'">
@@ -198,7 +202,7 @@
                             </tbody>
                             <tfoot>
                                 <tr style="font-weight: bold; border-top: 2px solid #343a40;">
-                                    <td colspan="5" class="text-end">
+                                    <td colspan="6" class="text-end">
                                         Net Total:
                                     </td>
                                     <td class="text-end">

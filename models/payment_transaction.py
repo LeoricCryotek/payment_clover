@@ -52,6 +52,16 @@ class PaymentTransaction(models.Model):
              "'Item 1'. Linked to the charge via order_id in the charge "
              "payload.",
     )
+    clover_cashier_id = fields.Many2one(
+        "res.users",
+        string="Cashier",
+        readonly=True,
+        copy=False,
+        help="The Odoo user who processed this charge through the "
+             "Clover terminal. Captured from the HTTP request user "
+             "BEFORE the controller elevates to sudo, so it reflects "
+             "the actual logged-in cashier rather than the system user.",
+    )
 
     # ------------------------------------------------------------------
     # Processing values (passed to inline form JS)

@@ -140,6 +140,7 @@ class CloverTransactionReportWizard(models.TransientModel):
             'Reference',
             'Clover Charge ID',
             'Customer',
+            'Cashier',
             'Operation',
             'State',
             'Amount',
@@ -155,6 +156,7 @@ class CloverTransactionReportWizard(models.TransientModel):
                 tx.reference or '',
                 tx.clover_charge_id or '',
                 tx.partner_name or '',
+                tx.clover_cashier_id.name if tx.clover_cashier_id else '',
                 dict(tx._fields['operation'].selection).get(tx.operation, tx.operation or ''),
                 dict(tx._fields['state'].selection).get(tx.state, tx.state or ''),
                 f'{tx.amount:.2f}',
@@ -169,6 +171,7 @@ class CloverTransactionReportWizard(models.TransientModel):
         writer.writerow([
             f'Period: {self.date_from} to {self.date_to}',
             f'Total Transactions: {len(transactions)}',
+            '',
             '',
             '',
             '',

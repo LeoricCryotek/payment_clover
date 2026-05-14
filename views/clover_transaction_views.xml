@@ -23,6 +23,8 @@
                 <field name="clover_external_ref" string="Ext Ref"
                        optional="hide"/>
                 <field name="partner_name" string="Customer"/>
+                <field name="clover_cashier_id" string="Cashier"
+                       optional="show"/>
                 <field name="operation" string="Type"
                        widget="badge"
                        decoration-info="operation == 'online_redirect'"
@@ -57,6 +59,7 @@
                 <field name="reference"/>
                 <field name="partner_name"/>
                 <field name="clover_charge_id"/>
+                <field name="clover_cashier_id"/>
                 <field name="provider_reference"/>
                 <separator/>
                 <filter name="filter_done" string="Confirmed"
@@ -89,6 +92,8 @@
                             context="{'group_by': 'operation'}"/>
                     <filter name="group_partner" string="Customer"
                             context="{'group_by': 'partner_name'}"/>
+                    <filter name="group_cashier" string="Cashier"
+                            context="{'group_by': 'clover_cashier_id'}"/>
                     <filter name="group_date" string="Date"
                             context="{'group_by': 'create_date:day'}"/>
                     <filter name="group_month" string="Month"
