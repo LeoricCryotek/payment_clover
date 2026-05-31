@@ -412,6 +412,12 @@ class CloverController(http.Controller):
                     "partner_id": partner.id,
                     "operation": "online_direct",
                     "clover_cashier_id": cashier_uid,
+                    # Persist the cashier's free-text description on
+                    # the Odoo record. Clover's Ecommerce API doesn't
+                    # surface this anywhere on the dashboard, so the
+                    # Odoo Transaction Log is the canonical place to
+                    # see what was purchased / what the cashier noted.
+                    "clover_description": (description or "")[:255],
                 })
             )
         except Exception as e:  # noqa: BLE001

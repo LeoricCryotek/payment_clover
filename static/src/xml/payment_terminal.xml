@@ -7,7 +7,7 @@
                 <div class="col-lg-6 col-md-8">
 
                     <h2 class="mb-4 d-flex align-items-center">
-                        <i class="fa fa-credit-card me-2"/>
+                        <i class="fa fa-credit-card me-2" title="Card"/>
                         <span>Clover Payment Terminal</span>
                         <t t-if="state.providers.length > 0">
                             <t t-set="activeProv"
@@ -15,7 +15,7 @@
                             <span t-if="activeProv and activeProv.state === 'test'"
                                   class="badge bg-warning text-dark ms-2"
                                   style="font-size: 0.5em; vertical-align: middle;">
-                                <i class="fa fa-flask me-1"/>SANDBOX
+                                <i class="fa fa-flask me-1" title="Test"/>SANDBOX
                             </span>
                         </t>
                         <!--
@@ -29,7 +29,7 @@
                                 class="btn btn-outline-secondary btn-sm ms-auto"
                                 t-on-click="openConfiguration"
                                 title="Open Clover Configuration">
-                            <i class="fa fa-cog me-1"/>
+                            <i class="fa fa-cog me-1" title="Settings"/>
                             <span>Settings</span>
                         </button>
                     </h2>
@@ -78,7 +78,7 @@
                                             t-att-class="state.isGuest ? 'btn btn-secondary' : 'btn btn-outline-secondary'"
                                             t-on-click="toggleGuest"
                                             title="Guest / Walk-in checkout">
-                                        <i class="fa fa-user-secret me-1"/>Guest
+                                        <i class="fa fa-user-secret me-1" title="Guest"/>Guest
                                     </button>
                                 </div>
                                 <div t-if="state.partners.length > 0 and !state.isGuest"
@@ -95,7 +95,7 @@
                                     </t>
                                 </div>
                                 <small t-if="state.isGuest" class="form-text text-muted">
-                                    <i class="fa fa-info-circle me-1"/>Processing as guest walk-in.
+                                    <i class="fa fa-info-circle me-1" title="Info"/>Processing as guest walk-in.
                                 </small>
                             </div>
 
@@ -128,7 +128,7 @@
                             <div t-if="state.cloverItems.length === 0 and state.itemsLoading" class="mb-3">
                                 <label class="form-label fw-bold">Item</label>
                                 <div class="text-muted small">
-                                    <i class="fa fa-spinner fa-spin me-1"/>Loading items...
+                                    <i class="fa fa-spinner fa-spin me-1" title="Loading"/>Loading items...
                                 </div>
                             </div>
 
@@ -152,21 +152,21 @@
                             <!-- Card input (Clover iframe) -->
                             <div class="mb-3 p-3 border rounded bg-light">
                                 <h6 class="fw-bold mb-3">
-                                    <i class="fa fa-lock me-1"/>
+                                    <i class="fa fa-lock me-1" title="Locked"/>
                                     Card Details
                                     <t t-if="state.cardReady">
                                         <span class="badge bg-success ms-2">
-                                            <i class="fa fa-check me-1"/>Ready
+                                            <i class="fa fa-check me-1" title="Done"/>Ready
                                         </span>
                                     </t>
                                     <t t-elif="state.cardError">
                                         <span class="badge bg-danger ms-2">
-                                            <i class="fa fa-exclamation-triangle me-1"/>Error
+                                            <i class="fa fa-exclamation-triangle me-1" title="Warning"/>Error
                                         </span>
                                     </t>
                                     <t t-else="">
                                         <span class="badge bg-secondary ms-2">
-                                            <i class="fa fa-spinner fa-spin me-1"/>Loading...
+                                            <i class="fa fa-spinner fa-spin me-1" title="Loading"/>Loading...
                                         </span>
                                     </t>
                                 </h6>
@@ -200,7 +200,7 @@
                                 <button type="button"
                                         class="btn btn-outline-secondary btn-sm mt-1"
                                         t-on-click="initCloverIframe">
-                                    <i class="fa fa-refresh me-1"/>
+                                    <i class="fa fa-refresh me-1" title="Refresh"/>
                                     Re-initialize Card Reader
                                 </button>
                             </div>
@@ -210,7 +210,7 @@
                                     class="btn btn-primary btn-lg w-100"
                                     t-att-disabled="!state.cardReady"
                                     t-on-click="processPayment">
-                                <i class="fa fa-bolt me-2"/>
+                                <i class="fa fa-bolt me-2" title="Action"/>
                                 Process Payment
                             </button>
 
@@ -220,7 +220,7 @@
                                    t-value="state.providers.find(p => p.id === state.selectedProviderId)"/>
                                 <div t-if="selProv and selProv.state === 'test'"
                                      class="alert alert-info mt-3 small mb-0">
-                                    <i class="fa fa-flask me-1"/>
+                                    <i class="fa fa-flask me-1" title="Test"/>
                                     <strong>Sandbox Mode</strong> — use these test cards:
                                     <code>4111 1111 1111 1111</code> (Visa),
                                     <code>5500 0000 0000 0004</code> (MC),
@@ -254,12 +254,12 @@
                         <div class="card-body text-center py-5">
                             <div t-if="state.resultStatus === 'ok'">
                                 <i class="fa fa-check-circle text-success"
-                                   style="font-size: 4rem;"/>
+                                   style="font-size: 4rem;" title="Done"/>
                                 <h3 class="mt-3 text-success">Payment Approved</h3>
                             </div>
                             <div t-else="">
                                 <i class="fa fa-times-circle text-danger"
-                                   style="font-size: 4rem;"/>
+                                   style="font-size: 4rem;" title="Error"/>
                                 <h3 class="mt-3 text-danger">Payment Failed</h3>
                             </div>
                             <p class="mt-2" t-esc="state.resultMessage"/>
@@ -269,7 +269,7 @@
                             <button type="button"
                                     class="btn btn-primary mt-3"
                                     t-on-click="resetForm">
-                                <i class="fa fa-plus me-1"/>
+                                <i class="fa fa-plus me-1" title="Add"/>
                                 New Payment
                             </button>
                         </div>

@@ -62,6 +62,41 @@ class PaymentTransaction(models.Model):
              "BEFORE the controller elevates to sudo, so it reflects "
              "the actual logged-in cashier rather than the system user.",
     )
+    clover_description = fields.Char(
+        string="Description",
+        readonly=True,
+        copy=False,
+        help="The free-text description the cashier entered (or "
+             "auto-filled from the selected item) when processing this "
+             "charge through the Clover terminal. Stored on Odoo's "
+             "side because Clover's Ecommerce API has no documented "
+             "field on the /pay endpoint that surfaces this value on "
+             "the dashboard's Payment screen.",
+    )
+    clover_summary = fields.Char(
+        string="Full Summary",
+        compute="_compute_clover_summary",
+        store=False,
+        help="Human-readable one-line summary: "
+             "<item> — <customer> — by <cashier> — [<reference>]. "
+             "Useful for reports and the Transaction Log when you want "
+             "all context in one column.",
+    )
+
+    @api.depends('clover_description', 'partner_name',
+                 'clover_cashier_id', 'reference')
+    def _compute_clover_summary(self):
+        for tx in self:
+            parts = []
+            if tx.clover_description:
+                parts.append(tx.clover_description)
+            if tx.partner_name:
+                parts.append(tx.partner_name)
+            if tx.clover_cashier_id:
+                parts.append(f"by {tx.clover_cashier_id.name}")
+            if tx.reference:
+                parts.append(f"[{tx.reference}]")
+            tx.clover_summary = " — ".join(parts) if parts else ""
 
     # ------------------------------------------------------------------
     # Processing values (passed to inline form JS)
@@ -223,16 +258,18 @@ class PaymentTransaction(models.Model):
             if not line_items:
                 return None
 
+            # Clover's documented /v1/orders body fields (per
+            # docs.clover.com/dev/reference/postorders, OpenAPI
+            # additionalProperties: false): currency (required),
+            # customer, email (required), expand, items, metadata,
+            # shipping. Anything else is reserved for future rejection.
+            # We intentionally only send documented fields.
             payload = {
                 "currency": self.currency_id.name.lower(),
                 "items": line_items,
             }
             if self.partner_email:
                 payload["email"] = self.partner_email
-            # Some Clover Order versions accept a top-level description
-            # which surfaces alongside the order in the dashboard. We
-            # include it; if the field is ignored, no harm done.
-            payload["description"] = self._clover_build_description()
 
             response = self.provider_id._clover_make_request(
                 "POST", "v1/orders", payload=payload,
@@ -410,16 +447,22 @@ class PaymentTransaction(models.Model):
                 # Pay-the-order endpoint. `ecomind: "ecom"` is the
                 # standard ecommerce indicator required by /pay.
                 #
-                # Note re: the Payment "Note" field — when charges go
-                # through the older /v1/charges endpoint, Clover uses
-                # the body's `description` as the Payment Note. The
-                # /pay endpoint does NOT auto-populate Note from the
-                # parent Order's description, so we re-send our
-                # description (and a duplicate `note` field as belt-
-                # and-suspenders) here so the Payment screen still
-                # carries the "item — customer — by cashier — [ref]"
-                # information when Daniel scans the Clover dashboard.
-                description = self._clover_build_description()
+                # Documented /v1/orders/{id}/pay body fields (per
+                # docs.clover.com/dev/reference/postordersidpay,
+                # OpenAPI additionalProperties: false): customer
+                # (required-but-Clover-accepts-token-only-charges in
+                # practice), ecomind, email, amount, currency,
+                # partial_redemption, expand, level2, level3,
+                # external_reference_id, external_customer_reference,
+                # metadata, source, intent, stored_credentials,
+                # tip_amount, tender.
+                #
+                # The Ecommerce API has NO documented field on /pay
+                # that maps to the dashboard's Payment "Note" — that
+                # field is set via the separate Platform API
+                # (PATCH /v3/merchants/{mId}/payments/{paymentId}).
+                # We persist the full descriptive context on the
+                # Odoo payment.transaction record instead.
                 endpoint = f"v1/orders/{order_id}/pay"
                 payload = {
                     "ecomind": "ecom",
@@ -427,8 +470,6 @@ class PaymentTransaction(models.Model):
                     "currency": self.currency_id.name.lower(),
                     "source": source_token,
                     "external_reference_id": ext_ref,
-                    "description": description,
-                    "note": description,
                     # Capture flag is intentionally OMITTED here:
                     # /pay always immediate-captures, and sending
                     # capture=false returns 400.

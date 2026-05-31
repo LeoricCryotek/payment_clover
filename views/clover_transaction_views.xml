@@ -25,6 +25,10 @@
                 <field name="partner_name" string="Customer"/>
                 <field name="clover_cashier_id" string="Cashier"
                        optional="show"/>
+                <field name="clover_description" string="Description"
+                       optional="show"/>
+                <field name="clover_summary" string="Summary"
+                       optional="hide"/>
                 <field name="operation" string="Type"
                        widget="badge"
                        decoration-info="operation == 'online_redirect'"
@@ -60,6 +64,7 @@
                 <field name="partner_name"/>
                 <field name="clover_charge_id"/>
                 <field name="clover_cashier_id"/>
+                <field name="clover_description"/>
                 <field name="provider_reference"/>
                 <separator/>
                 <filter name="filter_done" string="Confirmed"
