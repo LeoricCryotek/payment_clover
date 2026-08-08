@@ -57,6 +57,23 @@ class CloverPaymentTerminal extends Component {
         this._cloverInstance = null;
         this._cloverElements = {};
 
+        // Optional pre-fill passed in via the client action context (used
+        // e.g. by the RV Parking module's "Charge on Clover" button).
+        const ctx = (this.props.action && this.props.action.context) || {};
+        this._prefill = {
+            amount: ctx.default_amount,
+            description: ctx.default_description,
+            providerId: ctx.default_provider_id,
+            partnerId: ctx.default_partner_id,
+            partnerName: ctx.default_partner_name,
+            cloverItemId: ctx.default_clover_item_id,
+            // Passed straight through to the process endpoint so the
+            // resulting payment.transaction can be linked back to the
+            // originating RV registration (field only exists when the
+            // elksrvparking module is installed).
+            rvRegistrationId: ctx.rv_registration_id,
+        };
+
         onMounted(() => this._loadData());
         onWillUnmount(() => this._destroyClover());
     }
@@ -96,6 +113,25 @@ class CloverPaymentTerminal extends Component {
             this.state.selectedProviderId = providers[0].id;
         }
 
+        // Apply pre-fill passed in via the client-action context.
+        if (this._prefill.providerId &&
+            providers.some(p => p.id === this._prefill.providerId)) {
+            this.state.selectedProviderId = this._prefill.providerId;
+        }
+        if (this._prefill.amount != null && this._prefill.amount !== "") {
+            const amt = parseFloat(this._prefill.amount);
+            if (!isNaN(amt)) {
+                this.state.amount = amt.toFixed(2);
+            }
+        }
+        if (this._prefill.description) {
+            this.state.description = this._prefill.description;
+        }
+        if (this._prefill.partnerId) {
+            this.state.selectedPartnerId = this._prefill.partnerId;
+            this.state.partnerSearch = this._prefill.partnerName || "";
+        }
+
         // Default to USD
         const currencies = await this.orm.searchRead(
             "res.currency",
@@ -115,6 +151,20 @@ class CloverPaymentTerminal extends Component {
                 this.initCloverIframe(),
                 this._loadItems(),
             ]);
+            // Pre-select the item (e.g. RV Donation) without letting it
+            // overwrite a pre-filled amount.
+            if (this._prefill.cloverItemId &&
+                this.state.cloverItems.some(
+                    i => i.id === this._prefill.cloverItemId)) {
+                this.state.selectedItemId = this._prefill.cloverItemId;
+                if (!this.state.description) {
+                    const it = this.state.cloverItems.find(
+                        i => i.id === this._prefill.cloverItemId);
+                    if (it) {
+                        this.state.description = it.name;
+                    }
+                }
+            }
         }
     }
 
@@ -386,6 +436,7 @@ class CloverPaymentTerminal extends Component {
                 partner_id: partnerId,
                 clover_token: tokenResult.token,
                 description: this.state.description,
+                rv_registration_id: this._prefill.rvRegistrationId || null,
             });
 
             this.state.step = "result";

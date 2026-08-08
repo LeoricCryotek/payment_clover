@@ -288,10 +288,16 @@ class CloverController(http.Controller):
     )
     def terminal_process(self, provider_id, amount, currency_id,
                          partner_id, clover_token=None, description="",
-                         **kwargs):
+                         rv_registration_id=None, **kwargs):
         """Process a payment from the staff terminal.
 
         Creates a payment.transaction and immediately charges via Clover.
+
+        ``rv_registration_id`` is an optional generic link: when supplied
+        (and the field exists — i.e. the elksrvparking module is installed)
+        it is stored on the transaction so completion can be recorded back
+        onto the RV registration. Ignored otherwise, keeping this module
+        installable on its own.
 
         :return: dict with transaction details
         """
@@ -390,6 +396,16 @@ class CloverController(http.Controller):
         # into the create vals as `clover_cashier_id`.
         cashier_uid = request.env.user.id
 
+        # Optional link back to an RV registration (elksrvparking). Only
+        # set when the field is present so this module stays standalone.
+        extra_vals = {}
+        TxModel = request.env["payment.transaction"]
+        if rv_registration_id and "rv_registration_id" in TxModel._fields:
+            try:
+                extra_vals["rv_registration_id"] = int(rv_registration_id)
+            except (ValueError, TypeError):
+                pass
+
         # Create the transaction record BEFORE attempting the charge so
         # that even a hard failure produces a payment.transaction row in
         # the Transaction Log. The cursor will commit at the end of this
@@ -418,6 +434,7 @@ class CloverController(http.Controller):
                     # Odoo Transaction Log is the canonical place to
                     # see what was purchased / what the cashier noted.
                     "clover_description": (description or "")[:255],
+                    **extra_vals,
                 })
             )
         except Exception as e:  # noqa: BLE001
@@ -458,6 +475,18 @@ class CloverController(http.Controller):
                     "state": "error",
                     "state_message": str(e)[:1000],
                 })
+
+        # If this charge is linked to another document (e.g. an RV
+        # registration) run post-processing now so the write-back happens
+        # immediately rather than waiting for the cron. Idempotent.
+        if extra_vals.get("rv_registration_id") and tx_sudo.state == "done":
+            try:
+                tx_sudo._post_process()
+            except Exception:  # noqa: BLE001
+                _logger.exception(
+                    "Clover: post-process after linked terminal charge failed "
+                    "for %s", tx_sudo.reference,
+                )
 
         return {
             "status": "ok" if tx_sudo.state in ("done", "authorized") else "error",
