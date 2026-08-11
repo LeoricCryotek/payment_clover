@@ -1,236 +1,234 @@
 /** @odoo-module **/
+/* global Clover */
 
 /**
- * Clover inline payment form handler.
+ * Clover inline payment form handler (Odoo 19).
  *
- * Loads the Clover iframe SDK, mounts card input elements, and on
- * form submission tokenises the card and sends the token to the Odoo
- * controller which creates the charge.
+ * Mirrors the payment_authorize interaction pattern:
  *
- * Works with the standard Odoo payment form lifecycle:
- *   1. ``_prepareInlineForm()``  — called when provider is selected
- *   2. ``_processPayment()``     — called when "Pay Now" is clicked
+ *   1. ``_prepareInlineForm()``  — called when the Clover radio is
+ *      picked. We call ``_setPaymentFlow('direct')`` so Odoo routes to
+ *      ``_processDirectFlow`` instead of the default redirect flow (the
+ *      redirect flow crashes on Clover because we have no redirect DOM).
+ *      Also loads the Clover hosted-iframe SDK and mounts the card
+ *      elements (number, date, cvv, postal).
+ *
+ *   2. ``_processDirectFlow()`` — called when the customer clicks
+ *      "Pay Now". Tokenises the card via the Clover SDK, POSTs the
+ *      token to our controller (``/payment/clover/return``) which
+ *      creates the charge, then redirects to ``/payment/status``.
+ *
+ * Do NOT use the legacy ``publicWidget.registry.PaymentForm.include``
+ * pattern in Odoo 19 — the payment form was moved to the interactions
+ * system and the legacy registry entry no longer exists, so any
+ * overrides on it silently do nothing.
  */
 
+import { loadJS } from "@web/core/assets";
 import { _t } from "@web/core/l10n/translation";
-import { rpc } from "@web/core/network/rpc";
-import publicWidget from "@web/legacy/js/public/public_widget";
+import { rpc, RPCError } from "@web/core/network/rpc";
+import { patch } from "@web/core/utils/patch";
 
-publicWidget.registry.PaymentCloverForm = publicWidget.Widget.extend({
-    selector: '#payment_method',
-    events: {},
+import { PaymentForm } from "@payment/interactions/payment_form";
+
+patch(PaymentForm.prototype, {
+
+    setup() {
+        super.setup();
+        // Per-payment-option cache so we don't re-instantiate the
+        // Clover SDK / re-mount iframes on every radio click.
+        this.cloverData = {};
+    },
+
+    // #=== DOM MANIPULATION ===#
 
     /**
+     * Prepare the Clover inline form for a direct-flow tokenisation.
+     *
      * @override
      */
-    start() {
-        this._super(...arguments);
-        this._cloverInstance = null;
-        this._cloverElements = {};
-        this._cloverReady = false;
-        // Listen for provider selection changes
-        this._onProviderSelected();
-        return Promise.resolve();
-    },
-
-    /**
-     * Watch for when the Clover provider is selected and initialise
-     * the iframe elements.
-     */
-    _onProviderSelected() {
-        const form = this.el.closest('form') || this.el;
-        const observer = new MutationObserver(() => {
-            const container = document.getElementById('clover-payment-form');
-            if (container && !this._cloverReady) {
-                this._initClover(container);
-            }
-        });
-        observer.observe(form, {childList: true, subtree: true});
-
-        // Also try immediately
-        const container = document.getElementById('clover-payment-form');
-        if (container && !this._cloverReady) {
-            this._initClover(container);
+    async _prepareInlineForm(providerId, providerCode, paymentOptionId,
+                             paymentMethodCode, flow) {
+        if (providerCode !== "clover") {
+            await super._prepareInlineForm(...arguments);
+            return;
         }
-    },
+        // Tokenised (saved-card) payments use the generic flow.
+        if (flow === "token") {
+            return;
+        }
 
-    /**
-     * Load the Clover SDK script and mount card elements.
-     */
-    async _initClover(container) {
-        const pakmsKey = container.dataset.cloverPakmsKey;
-        const sdkUrl = container.dataset.cloverSdkUrl;
+        // Switch the selected payment method to Odoo's "direct" flow so
+        // that _processDirectFlow (below) is invoked on submit rather
+        // than _processRedirectFlow (which has no redirect payload for
+        // Clover and errors out).
+        this._setPaymentFlow("direct");
+
+        // Locate the Clover inline form container inside the radio's
+        // inline form area. The template renders a div#clover-payment-
+        // form with data-* attributes carrying pakms/merchant/sdk info.
+        const radio = document.querySelector(
+            'input[name="o_payment_radio"]:checked');
+        const inlineForm = this._getInlineForm(radio);
+        if (!inlineForm) {
+            return;
+        }
+        const cloverForm = inlineForm.querySelector("#clover-payment-form");
+        if (!cloverForm) {
+            return;
+        }
+
+        const pakmsKey = cloverForm.dataset.cloverPakmsKey;
+        const merchantId = cloverForm.dataset.cloverMerchantId;
+        const sdkUrl = cloverForm.dataset.cloverSdkUrl;
 
         if (!pakmsKey || !sdkUrl) {
-            console.error('Clover: missing PAKMS key or SDK URL');
+            console.error(
+                "Clover: missing PAKMS key or SDK URL on inline form.");
             return;
         }
 
-        // Load SDK if not already loaded
+        // Load the Clover hosted-iframe SDK once per page.
         if (!window.Clover) {
-            await this._loadScript(sdkUrl);
+            await loadJS(sdkUrl);
         }
-
         if (!window.Clover) {
-            console.error('Clover SDK failed to load');
-            this._showError('Could not load the Clover payment SDK.');
+            console.error("Clover: SDK failed to load from", sdkUrl);
             return;
         }
 
-        try {
-            const merchantId = container.dataset.cloverMerchantId;
-            const cloverOpts = {};
-            if (merchantId) {
-                cloverOpts.merchantId = merchantId;
-            }
-            this._cloverInstance = new window.Clover(pakmsKey, cloverOpts);
-            const elements = this._cloverInstance.elements();
-
-            // Create individual card elements
-            this._cloverElements.cardNumber = elements.create('CARD_NUMBER');
-            this._cloverElements.cardDate = elements.create('CARD_DATE');
-            this._cloverElements.cardCvv = elements.create('CARD_CVV');
-            this._cloverElements.cardPostal = elements.create('CARD_POSTAL_CODE');
-
-            // Mount them
-            this._cloverElements.cardNumber.mount('#clover-card-number');
-            this._cloverElements.cardDate.mount('#clover-card-date');
-            this._cloverElements.cardCvv.mount('#clover-card-cvv');
-            this._cloverElements.cardPostal.mount('#clover-card-postal');
-
-            this._cloverReady = true;
-        } catch (e) {
-            console.error('Clover init error:', e);
-            this._showError('Failed to initialize Clover payment form.');
-        }
-    },
-
-    /**
-     * Dynamically load an external script.
-     */
-    _loadScript(src) {
-        return new Promise((resolve, reject) => {
-            if (document.querySelector(`script[src="${src}"]`)) {
-                resolve();
-                return;
-            }
-            const script = document.createElement('script');
-            script.src = src;
-            script.onload = resolve;
-            script.onerror = reject;
-            document.head.appendChild(script);
-        });
-    },
-
-    /**
-     * Display an error message in the card errors div.
-     */
-    _showError(message) {
-        const errDiv = document.getElementById('clover-card-errors');
-        if (errDiv) {
-            errDiv.textContent = message;
-        }
-    },
-
-    /**
-     * Clear any displayed error.
-     */
-    _clearError() {
-        const errDiv = document.getElementById('clover-card-errors');
-        if (errDiv) {
-            errDiv.textContent = '';
-        }
-    },
-});
-
-
-/**
- * Extend the payment form's processing to handle Clover tokenization.
- *
- * This hooks into the Odoo payment form's standard flow: when the user
- * clicks "Pay Now" and the selected provider is Clover, we intercept,
- * tokenise via the Clover SDK, then send the token to our controller.
- */
-publicWidget.registry.PaymentForm?.include?.({
-
-    /**
-     * Override to handle Clover's inline form.
-     */
-    async _processProviderPayment(providerCode, providerId, processingValues) {
-        if (providerCode !== 'clover') {
-            return this._super(...arguments);
-        }
-
-        // Verify Clover is ready
-        const cloverWidget = this.__parentedChildren?.find(
-            w => w instanceof publicWidget.registry.PaymentCloverForm
-        );
-
-        const container = document.getElementById('clover-payment-form');
-        if (!container) {
-            this._displayError(_t("Payment Error"),
-                _t("Clover payment form not found."));
+        // Instantiate + mount elements once per payment option.
+        if (this.cloverData[paymentOptionId]) {
             return;
         }
-
-        // Get the Clover instance from the global scope
-        const pakmsKey = container.dataset.cloverPakmsKey;
-        const merchantId = container.dataset.cloverMerchantId;
+        const cloverOpts = {};
+        if (merchantId) {
+            cloverOpts.merchantId = merchantId;
+        }
         let cloverInstance;
         try {
-            const opts = {};
-            if (merchantId) { opts.merchantId = merchantId; }
-            cloverInstance = new window.Clover(pakmsKey, opts);
+            cloverInstance = new window.Clover(pakmsKey, cloverOpts);
         } catch (e) {
-            this._displayError(_t("Payment Error"),
-                _t("Could not initialize Clover SDK."));
+            console.error("Clover: SDK init failed:", e);
+            return;
+        }
+        const elements = cloverInstance.elements();
+
+        // Mount into the four div slots defined in the template.
+        // Query WITHIN the inline form so multiple Clover providers on
+        // one page (unlikely but supported) don't clash.
+        const numberEl = elements.create("CARD_NUMBER");
+        const dateEl = elements.create("CARD_DATE");
+        const cvvEl = elements.create("CARD_CVV");
+        const postalEl = elements.create("CARD_POSTAL_CODE");
+
+        const mountInto = (el, sel) => {
+            const target = inlineForm.querySelector(sel);
+            if (target) {
+                el.mount(target);
+            }
+        };
+        mountInto(numberEl, "#clover-card-number");
+        mountInto(dateEl, "#clover-card-date");
+        mountInto(cvvEl, "#clover-card-cvv");
+        mountInto(postalEl, "#clover-card-postal");
+
+        this.cloverData[paymentOptionId] = {
+            instance: cloverInstance,
+            elements: {
+                number: numberEl,
+                date: dateEl,
+                cvv: cvvEl,
+                postal: postalEl,
+            },
+            form: cloverForm,
+        };
+    },
+
+    // #=== PAYMENT FLOW ===#
+
+    /**
+     * Process the Clover direct payment: tokenise, POST to controller,
+     * redirect to /payment/status.
+     *
+     * @override
+     */
+    async _processDirectFlow(providerCode, paymentOptionId, paymentMethodCode,
+                             processingValues) {
+        if (providerCode !== "clover") {
+            await super._processDirectFlow(...arguments);
             return;
         }
 
-        // Tokenize the card
+        const data = this.cloverData[paymentOptionId];
+        if (!data || !data.instance) {
+            this._displayErrorDialog(
+                _t("Payment processing failed"),
+                _t("The Clover payment form is not ready. Please refresh " +
+                    "the page and try again."),
+            );
+            this._enableButton?.();
+            return;
+        }
+
+        // Tokenise the card via the Clover SDK.
         let tokenResult;
         try {
-            tokenResult = await cloverInstance.createToken();
+            tokenResult = await data.instance.createToken();
         } catch (e) {
-            this._displayError(_t("Payment Error"),
-                _t("Could not process card details."));
-            return;
-        }
-
-        if (tokenResult.errors) {
-            const errorMessages = Object.values(tokenResult.errors).join(', ');
-            this._displayError(_t("Card Error"), errorMessages);
-            return;
-        }
-
-        if (!tokenResult.token) {
-            this._displayError(_t("Payment Error"),
-                _t("No token received from Clover."));
-            return;
-        }
-
-        // Send token to our controller to create the charge
-        try {
-            const result = await rpc(
-                processingValues.return_url || '/payment/clover/return',
-                {
-                    reference: processingValues.reference,
-                    clover_token: tokenResult.token,
-                },
+            this._displayErrorDialog(
+                _t("Payment processing failed"),
+                _t("Could not read card details: %s", e.message || ""),
             );
+            this._enableButton?.();
+            return;
+        }
 
-            if (result.status === 'ok') {
-                // Redirect to the payment status page
-                window.location.href = '/payment/status';
+        if (tokenResult && tokenResult.errors) {
+            const msg = Object.values(tokenResult.errors).join(", ");
+            this._displayErrorDialog(_t("Card error"), msg);
+            this._enableButton?.();
+            return;
+        }
+        if (!tokenResult || !tokenResult.token) {
+            this._displayErrorDialog(
+                _t("Payment processing failed"),
+                _t("No payment token was returned by Clover."),
+            );
+            this._enableButton?.();
+            return;
+        }
+
+        // POST the single-use token to our controller. It creates the
+        // Clover order + charge server-side and updates the tx state.
+        try {
+            const result = await rpc("/payment/clover/return", {
+                reference: processingValues.reference,
+                clover_token: tokenResult.token,
+            });
+            if (result && result.status === "ok") {
+                window.location = "/payment/status";
+                return;
+            }
+            this._displayErrorDialog(
+                _t("Payment failed"),
+                (result && result.message)
+                    || _t("The payment could not be processed."),
+            );
+            this._enableButton?.();
+        } catch (error) {
+            if (error instanceof RPCError) {
+                this._displayErrorDialog(
+                    _t("Payment processing failed"),
+                    error.data?.message || error.message || "",
+                );
             } else {
-                this._displayError(
-                    _t("Payment Failed"),
-                    result.message || _t("The payment could not be processed."),
+                this._displayErrorDialog(
+                    _t("Payment processing failed"),
+                    error.message || _t("Unexpected error."),
                 );
             }
-        } catch (e) {
-            this._displayError(_t("Payment Error"),
-                _t("An error occurred while processing the payment."));
+            this._enableButton?.();
         }
     },
 });
