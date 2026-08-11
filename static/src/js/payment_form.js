@@ -115,23 +115,18 @@ patch(PaymentForm.prototype, {
         const elements = cloverInstance.elements();
 
         // Mount into the four div slots defined in the template.
-        // Query WITHIN the inline form so multiple Clover providers on
-        // one page (unlikely but supported) don't clash.
+        // The Clover SDK's .mount() takes a CSS selector STRING, not
+        // an HTMLElement — passing the element throws
+        // "[object HTMLDivElement] is not a valid selector".
         const numberEl = elements.create("CARD_NUMBER");
         const dateEl = elements.create("CARD_DATE");
         const cvvEl = elements.create("CARD_CVV");
         const postalEl = elements.create("CARD_POSTAL_CODE");
 
-        const mountInto = (el, sel) => {
-            const target = inlineForm.querySelector(sel);
-            if (target) {
-                el.mount(target);
-            }
-        };
-        mountInto(numberEl, "#clover-card-number");
-        mountInto(dateEl, "#clover-card-date");
-        mountInto(cvvEl, "#clover-card-cvv");
-        mountInto(postalEl, "#clover-card-postal");
+        numberEl.mount("#clover-card-number");
+        dateEl.mount("#clover-card-date");
+        cvvEl.mount("#clover-card-cvv");
+        postalEl.mount("#clover-card-postal");
 
         this.cloverData[paymentOptionId] = {
             instance: cloverInstance,
