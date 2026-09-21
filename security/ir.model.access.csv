@@ -2,3 +2,14 @@ id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
 access_clover_item_user,clover.item.user,model_clover_item,payment_clover.group_clover_user,1,0,0,0
 access_clover_item_admin,clover.item.admin,model_clover_item,payment_clover.group_clover_admin,1,1,1,1
 access_clover_report_wizard_admin,clover.transaction.report.wizard.admin,model_clover_transaction_report_wizard,payment_clover.group_clover_admin,1,1,1,1
+access_clover_employee_user,clover.employee.user,model_clover_employee,payment_clover.group_clover_user,1,0,0,0
+access_clover_employee_admin,clover.employee.admin,model_clover_employee,payment_clover.group_clover_admin,1,1,1,1
+access_clover_sale_user,clover.sale.user,model_clover_sale,payment_clover.group_clover_user,1,0,0,0
+access_clover_sale_admin,clover.sale.admin,model_clover_sale,payment_clover.group_clover_admin,1,1,1,1
+access_clover_sale_line_user,clover.sale.line.user,model_clover_sale_line,payment_clover.group_clover_user,1,0,0,0
+access_clover_sale_line_admin,clover.sale.line.admin,model_clover_sale_line,payment_clover.group_clover_admin,1,1,1,1
+access_clover_tip_user,clover.tip.entry.user,model_clover_tip_entry,payment_clover.group_clover_user,1,0,0,0
+access_clover_tip_admin,clover.tip.entry.admin,model_clover_tip_entry,payment_clover.group_clover_admin,1,1,1,1
+access_clover_sync_preview_wizard_admin,clover.sync.preview.wizard.admin,model_clover_sync_preview_wizard,payment_clover.group_clover_admin,1,1,1,1
+access_clover_sync_preview_employee_admin,clover.sync.preview.employee.admin,model_clover_sync_preview_employee,payment_clover.group_clover_admin,1,1,1,1
+access_clover_sync_preview_sale_admin,clover.sync.preview.sale.admin,model_clover_sync_preview_sale,payment_clover.group_clover_admin,1,1,1,1

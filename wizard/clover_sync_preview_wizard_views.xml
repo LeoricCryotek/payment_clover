@@ -1,0 +1,160 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!--
+        Preview / dry-run wizard for a Clover sync.
+
+        Opened from the "Preview Clover Data" menu (admin only) and
+        the header button on the Clover payment.provider form. Fetches
+        the last N Clover orders + all Clover employees, runs the same
+        matching / dedup / auto-create decisions the real sync would
+        run, and shows the admin the outcome. Commits nothing until
+        the admin clicks "Commit These Changes".
+    -->
+    <record id="clover_sync_preview_wizard_view_form" model="ir.ui.view">
+        <field name="name">clover.sync.preview.wizard.form</field>
+        <field name="model">clover.sync.preview.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Clover Sync — Preview">
+                <header>
+                    <button name="action_refresh_preview"
+                            type="object"
+                            string="Refresh Preview"
+                            class="btn-secondary"
+                            icon="fa-refresh"/>
+                    <button name="action_commit_preview"
+                            type="object"
+                            string="Commit These Changes"
+                            class="btn-primary"
+                            icon="fa-check"
+                            confirm="This will run the REAL Clover sync. It pulls everything modified since the last successful sync (or all data on the first run), which may be more than what this preview shows. Continue?"/>
+                </header>
+                <sheet>
+                    <div class="alert alert-info mb-3" role="alert">
+                        <strong>Dry-run preview.</strong>
+                        Nothing here is committed to the database.
+                        The employees and orders below show exactly
+                        what the sync WOULD do if you clicked
+                        "Commit These Changes" — no partners created,
+                        no hr.employees added, no mirror rows written.
+                        Use this to check for wrong-name matches or
+                        unexpected auto-creates before flipping the
+                        real sync on.
+                    </div>
+                    <group>
+                        <group>
+                            <field name="provider_id"
+                                   options="{'no_create': True}"
+                                   required="1"/>
+                            <field name="sample_size"/>
+                        </group>
+                        <group>
+                            <field name="fetched_at" readonly="1"/>
+                        </group>
+                    </group>
+                    <notebook>
+
+                        <!-- ============================= -->
+                        <!-- Summary tab                   -->
+                        <!-- ============================= -->
+                        <page string="Summary" name="summary">
+                            <group>
+                                <group string="Employees">
+                                    <field name="count_emp_link_existing" readonly="1"/>
+                                    <field name="count_emp_auto_create" readonly="1"/>
+                                    <field name="count_emp_already_linked" readonly="1"/>
+                                    <field name="count_emp_float" readonly="1"/>
+                                </group>
+                                <group string="Sales / Contacts">
+                                    <field name="count_sale_create" readonly="1"/>
+                                    <field name="count_sale_update" readonly="1"/>
+                                    <field name="count_partner_match" readonly="1"/>
+                                    <field name="count_partner_create" readonly="1"/>
+                                    <field name="count_partner_skip" readonly="1"/>
+                                </group>
+                            </group>
+                            <div class="alert alert-warning mt-3" role="alert"
+                                 invisible="count_emp_auto_create == 0 and count_partner_create == 0">
+                                <strong>Check auto-creates carefully.</strong>
+                                Auto-created hr.employees and res.partners
+                                cannot be safely deleted after commit if
+                                other Odoo records reference them. Fix
+                                the source (add the employee manually,
+                                update the contact's phone/email) BEFORE
+                                committing whenever possible.
+                            </div>
+                        </page>
+
+                        <!-- ============================= -->
+                        <!-- Employees tab                 -->
+                        <!-- ============================= -->
+                        <page string="Employees" name="employees">
+                            <field name="employee_line_ids" readonly="1"
+                                   nolabel="1">
+                                <list decoration-warning="action == 'create'"
+                                      decoration-muted="action == 'float' or action == 'unchanged'"
+                                      decoration-info="action == 'link'">
+                                    <field name="name"/>
+                                    <field name="nickname"/>
+                                    <field name="email"/>
+                                    <field name="role"/>
+                                    <field name="action"/>
+                                    <field name="matched_employee_id"/>
+                                    <field name="match_reason"/>
+                                </list>
+                            </field>
+                        </page>
+
+                        <!-- ============================= -->
+                        <!-- Sales tab                     -->
+                        <!-- ============================= -->
+                        <page string="Sales" name="sales">
+                            <field name="sale_line_ids" readonly="1"
+                                   nolabel="1">
+                                <list decoration-warning="partner_action == 'create'"
+                                      decoration-muted="partner_action == 'skip'"
+                                      decoration-info="sale_action == 'update'">
+                                    <field name="date"/>
+                                    <field name="cashier_name"/>
+                                    <field name="customer_name"/>
+                                    <field name="customer_phone" optional="hide"/>
+                                    <field name="customer_email" optional="hide"/>
+                                    <field name="total_amount" sum="Total"/>
+                                    <field name="tip_amount" sum="Tips"/>
+                                    <field name="line_count"/>
+                                    <field name="sale_action"/>
+                                    <field name="partner_action"/>
+                                    <field name="matched_partner_id"/>
+                                    <field name="partner_reason"/>
+                                </list>
+                            </field>
+                        </page>
+
+                    </notebook>
+                </sheet>
+                <footer>
+                    <button string="Close"
+                            special="cancel"
+                            class="btn-secondary"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+
+    <!-- Menu-launched entry point — searches for the sole enabled
+         Clover provider and opens the wizard, or warns if none. -->
+    <record id="action_clover_preview_menu" model="ir.actions.server">
+        <field name="name">Clover Sync — Preview</field>
+        <field name="model_id" ref="payment.model_payment_provider"/>
+        <field name="state">code</field>
+        <field name="code">action = env['payment.provider'].action_clover_open_preview_menu()</field>
+    </record>
+
+    <menuitem id="menu_clover_sync_preview"
+              name="Preview Sync (Dry Run)"
+              parent="menu_clover_sales_root"
+              action="action_clover_preview_menu"
+              sequence="80"
+              groups="payment_clover.group_clover_admin"/>
+
+</odoo>

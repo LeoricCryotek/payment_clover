@@ -33,6 +33,37 @@
                            password="True"
                            placeholder="Optional — HMAC secret for webhook signature verification"/>
                 </group>
+                <div class="alert alert-danger mb-2" role="alert"
+                     colspan="2"
+                     invisible="code != 'clover'">
+                    <i class="fa fa-exclamation-triangle me-1"
+                       title="Warning"/>
+                    <strong>Do not use Odoo POS with Clover.</strong>
+                    This module intentionally does NOT integrate with
+                    Odoo POS. Sales rung in Odoo POS become pos.order
+                    records that never reach Clover, so your Clover
+                    daily-close reports, Clover-side inventory, and
+                    the QBO reconciliation your bookkeeper does from
+                    Clover will all be missing those sales. Keep
+                    Clover as the sole physical point-of-sale.
+                    Payment through Clover in Odoo happens only via
+                    the website checkout (/shop/payment) and the
+                    staff Clover Terminal screen shipped with this
+                    module.
+                </div>
+                <group invisible="code != 'clover'" string="Clover Sync Engine (read-only, silent)">
+                    <field name="clover_sync_sales"/>
+                    <field name="clover_auto_create_sale_orders"
+                           invisible="not clover_sync_sales"/>
+                    <field name="clover_auto_create_partners"
+                           invisible="not clover_sync_sales"/>
+                    <field name="clover_sync_item_costs"
+                           invisible="not clover_sync_sales"/>
+                    <field name="clover_last_sales_sync_at" readonly="1"
+                           invisible="not clover_sync_sales"/>
+                    <field name="clover_last_employee_sync_at" readonly="1"
+                           invisible="not clover_sync_sales"/>
+                </group>
             </group>
 
             <!-- Sync Items button in the header -->
@@ -45,6 +76,12 @@
                             icon="fa-refresh"
                             invisible="code != 'clover' or state == 'disabled'"
                             confirm="This will fetch all items from your Clover inventory. Continue?"/>
+                    <button name="action_clover_open_preview"
+                            string="Preview Sync (Dry Run)"
+                            type="object"
+                            class="btn-secondary"
+                            icon="fa-search"
+                            invisible="code != 'clover' or not clover_sync_sales"/>
                 </header>
             </xpath>
 
@@ -58,10 +95,12 @@
                             <field name="name" readonly="1"/>
                             <field name="clover_item_id" readonly="1"/>
                             <field name="price" readonly="1"/>
+                            <field name="cost" readonly="1"/>
                             <field name="price_type" readonly="1"/>
                             <field name="sku" readonly="1"/>
                             <field name="category_name" readonly="1"/>
                             <field name="product_id"/>
+                            <field name="exclude_from_employee_tips"/>
                             <field name="active" readonly="1"/>
                             <field name="last_synced" readonly="1"/>
                         </list>

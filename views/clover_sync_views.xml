@@ -1,0 +1,321 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!-- ================================================================ -->
+    <!-- clover.employee list + form                                      -->
+    <!-- ================================================================ -->
+    <record id="clover_employee_view_list" model="ir.ui.view">
+        <field name="name">clover.employee.list</field>
+        <field name="model">clover.employee</field>
+        <field name="arch" type="xml">
+            <list string="Clover Employees" editable="bottom">
+                <field name="name" readonly="1"/>
+                <field name="nickname" readonly="1"/>
+                <field name="email" readonly="1"/>
+                <field name="role" readonly="1"/>
+                <field name="employee_id"/>
+                <field name="is_float" readonly="1"/>
+                <field name="exclude_from_reports"/>
+                <field name="last_synced" readonly="1"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="clover_employee_view_form" model="ir.ui.view">
+        <field name="name">clover.employee.form</field>
+        <field name="model">clover.employee</field>
+        <field name="arch" type="xml">
+            <form string="Clover Employee">
+                <sheet>
+                    <group>
+                        <group>
+                            <field name="name"/>
+                            <field name="nickname"/>
+                            <field name="email"/>
+                            <field name="role"/>
+                        </group>
+                        <group>
+                            <field name="provider_id"/>
+                            <field name="clover_employee_id" readonly="1"/>
+                            <field name="employee_id"/>
+                            <field name="is_float" readonly="1"/>
+                            <field name="exclude_from_reports"/>
+                            <field name="last_synced" readonly="1"/>
+                        </group>
+                    </group>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="clover_employee_action" model="ir.actions.act_window">
+        <field name="name">Clover Employees</field>
+        <field name="res_model">clover.employee</field>
+        <field name="view_mode">list,form</field>
+    </record>
+
+    <!-- ================================================================ -->
+    <!-- clover.sale list + form (with lines)                             -->
+    <!-- ================================================================ -->
+    <record id="clover_sale_view_list" model="ir.ui.view">
+        <field name="name">clover.sale.list</field>
+        <field name="model">clover.sale</field>
+        <field name="arch" type="xml">
+            <list string="Clover Sales" default_order="date desc">
+                <field name="date"/>
+                <field name="clover_order_id"/>
+                <field name="employee_id"/>
+                <field name="partner_id"/>
+                <field name="customer_name" optional="hide"/>
+                <field name="total_amount" sum="Total"/>
+                <field name="tip_amount" sum="Tips"/>
+                <field name="state"/>
+                <field name="is_paid"/>
+                <field name="sale_order_id" optional="show"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="clover_sale_view_form" model="ir.ui.view">
+        <field name="name">clover.sale.form</field>
+        <field name="model">clover.sale</field>
+        <field name="arch" type="xml">
+            <form string="Clover Sale" create="false" delete="false">
+                <header>
+                    <button name="action_open_sale_order"
+                            type="object"
+                            string="Open Sale Order"
+                            class="btn-secondary"
+                            invisible="not sale_order_id"/>
+                </header>
+                <sheet>
+                    <group>
+                        <group>
+                            <field name="date"/>
+                            <field name="clover_order_id" readonly="1"/>
+                            <field name="state" readonly="1"/>
+                            <field name="is_paid" readonly="1"/>
+                        </group>
+                        <group>
+                            <field name="employee_id"/>
+                            <field name="partner_id"/>
+                            <field name="total_amount" readonly="1"/>
+                            <field name="tip_amount" readonly="1"/>
+                        </group>
+                    </group>
+                    <group string="Raw Clover Customer" invisible="not customer_name and not customer_email and not customer_phone">
+                        <field name="customer_name" readonly="1"/>
+                        <field name="customer_email" readonly="1"/>
+                        <field name="customer_phone" readonly="1"/>
+                    </group>
+                    <notebook>
+                        <page string="Line Items" name="lines">
+                            <field name="line_ids" readonly="1" nolabel="1">
+                                <list>
+                                    <field name="description"/>
+                                    <field name="clover_item_id" optional="hide"/>
+                                    <field name="unit_qty"/>
+                                    <field name="amount"/>
+                                    <field name="note" optional="hide"/>
+                                </list>
+                            </field>
+                        </page>
+                        <page string="Tips" name="tips">
+                            <field name="tip_ids" readonly="1" nolabel="1">
+                                <list>
+                                    <field name="date"/>
+                                    <field name="employee_id"/>
+                                    <field name="amount" sum="Total"/>
+                                    <field name="is_event_gratuity"/>
+                                    <field name="is_refunded"/>
+                                </list>
+                            </field>
+                        </page>
+                        <page string="System" name="system">
+                            <group>
+                                <field name="provider_id" readonly="1"/>
+                                <field name="clover_employee_id" readonly="1"/>
+                                <field name="currency_code" readonly="1"/>
+                                <field name="sale_order_id" readonly="1"/>
+                                <field name="last_synced" readonly="1"/>
+                            </group>
+                        </page>
+                    </notebook>
+                </sheet>
+            </form>
+        </field>
+    </record>
+
+    <record id="clover_sale_view_search" model="ir.ui.view">
+        <field name="name">clover.sale.search</field>
+        <field name="model">clover.sale</field>
+        <field name="arch" type="xml">
+            <search>
+                <field name="clover_order_id"/>
+                <field name="employee_id"/>
+                <field name="partner_id"/>
+                <field name="customer_name"/>
+                <filter name="paid" string="Paid"
+                        domain="[('is_paid', '=', True)]"/>
+                <filter name="unpaid" string="Unpaid"
+                        domain="[('is_paid', '=', False)]"/>
+                <separator/>
+                <filter name="today" string="Today"
+                        domain="[('date', '>=', context_today().strftime('%Y-%m-%d'))]"/>
+                <filter name="this_month" string="This Month"
+                        domain="[('date', '>=', (context_today().replace(day=1)).strftime('%Y-%m-%d'))]"/>
+                <group>
+                    <filter name="grp_employee" string="Employee"
+                            context="{'group_by': 'employee_id'}"/>
+                    <filter name="grp_date" string="Day"
+                            context="{'group_by': 'date:day'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <record id="clover_sale_view_pivot" model="ir.ui.view">
+        <field name="name">clover.sale.pivot</field>
+        <field name="model">clover.sale</field>
+        <field name="arch" type="xml">
+            <pivot string="Sales by Employee">
+                <field name="employee_id" type="row"/>
+                <field name="date" interval="day" type="col"/>
+                <field name="total_amount" type="measure"/>
+                <field name="tip_amount" type="measure"/>
+            </pivot>
+        </field>
+    </record>
+
+    <record id="clover_sale_action" model="ir.actions.act_window">
+        <field name="name">Clover Sales</field>
+        <field name="res_model">clover.sale</field>
+        <field name="view_mode">list,form,pivot</field>
+        <field name="context">{'search_default_this_month': 1}</field>
+    </record>
+
+    <!-- ================================================================ -->
+    <!-- clover.tip.entry views                                           -->
+    <!-- ================================================================ -->
+    <record id="clover_tip_view_list" model="ir.ui.view">
+        <field name="name">clover.tip.entry.list</field>
+        <field name="model">clover.tip.entry</field>
+        <field name="arch" type="xml">
+            <list string="Clover Tips" default_order="date desc"
+                  decoration-muted="is_unclaimed or is_event_gratuity or is_refunded">
+                <field name="date"/>
+                <field name="employee_id"/>
+                <field name="amount" sum="Total Tips"/>
+                <field name="clover_sale_id"/>
+                <field name="is_event_gratuity"/>
+                <field name="is_unclaimed"/>
+                <field name="is_refunded"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="clover_tip_view_search" model="ir.ui.view">
+        <field name="name">clover.tip.entry.search</field>
+        <field name="model">clover.tip.entry</field>
+        <field name="arch" type="xml">
+            <search>
+                <field name="employee_id"/>
+                <field name="clover_payment_id"/>
+                <filter name="exclude_gratuity" string="Exclude Event Gratuity"
+                        domain="[('is_event_gratuity', '=', False)]"/>
+                <filter name="exclude_unclaimed" string="Exclude Unclaimed"
+                        domain="[('is_unclaimed', '=', False)]"/>
+                <filter name="exclude_refunds" string="Exclude Refunded"
+                        domain="[('is_refunded', '=', False)]"/>
+                <separator/>
+                <filter name="only_personal" string="Only Personal Tips"
+                        domain="[('is_event_gratuity', '=', False), ('is_unclaimed', '=', False), ('is_refunded', '=', False), ('employee_id', '!=', False)]"/>
+                <filter name="only_unclaimed" string="Only Unclaimed Tips"
+                        domain="[('is_unclaimed', '=', True), ('is_refunded', '=', False)]"/>
+                <filter name="only_gratuity" string="Only Event Gratuity"
+                        domain="[('is_event_gratuity', '=', True), ('is_refunded', '=', False)]"/>
+                <filter name="unassigned"
+                        string="Unassigned to Employee"
+                        domain="[('employee_id', '=', False), ('is_event_gratuity', '=', False), ('is_unclaimed', '=', False)]"/>
+                <separator/>
+                <filter name="today" string="Today"
+                        domain="[('date', '>=', context_today().strftime('%Y-%m-%d'))]"/>
+                <filter name="this_month" string="This Month"
+                        domain="[('date', '>=', (context_today().replace(day=1)).strftime('%Y-%m-%d'))]"/>
+                <group>
+                    <filter name="grp_employee" string="Employee"
+                            context="{'group_by': 'employee_id'}"/>
+                    <filter name="grp_date" string="Day"
+                            context="{'group_by': 'date:day'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <record id="clover_tip_view_pivot" model="ir.ui.view">
+        <field name="name">clover.tip.entry.pivot</field>
+        <field name="model">clover.tip.entry</field>
+        <field name="arch" type="xml">
+            <pivot string="Tips by Employee">
+                <field name="employee_id" type="row"/>
+                <field name="date" interval="day" type="col"/>
+                <field name="amount" type="measure"/>
+            </pivot>
+        </field>
+    </record>
+
+    <record id="clover_tip_action" model="ir.actions.act_window">
+        <field name="name">Clover Tips</field>
+        <field name="res_model">clover.tip.entry</field>
+        <field name="view_mode">list,pivot</field>
+        <field name="context">{'search_default_only_personal': 1, 'search_default_this_month': 1}</field>
+    </record>
+
+    <!-- ================================================================ -->
+    <!-- Sync Now server action + menu binding                            -->
+    <!-- ================================================================ -->
+    <record id="clover_sync_now_action" model="ir.actions.server">
+        <field name="name">Clover Sync Now</field>
+        <field name="model_id" ref="payment.model_payment_provider"/>
+        <field name="state">code</field>
+        <field name="code">action = env['payment.provider'].browse().action_clover_sync_now()</field>
+    </record>
+
+    <!-- ================================================================ -->
+    <!-- Menu structure (added under existing Clover menu root)           -->
+    <!-- Depends on the root defined in payment_terminal_views.xml.       -->
+    <!-- ================================================================ -->
+    <menuitem id="menu_clover_sales_root"
+              name="Sales"
+              parent="menu_clover_root"
+              sequence="15"/>
+
+    <menuitem id="menu_clover_sales_orders"
+              name="Sales"
+              parent="menu_clover_sales_root"
+              action="clover_sale_action"
+              sequence="10"
+              groups="payment_clover.group_clover_user"/>
+
+    <menuitem id="menu_clover_tips"
+              name="Tips"
+              parent="menu_clover_sales_root"
+              action="clover_tip_action"
+              sequence="20"
+              groups="payment_clover.group_clover_user"/>
+
+    <menuitem id="menu_clover_employees"
+              name="Employees"
+              parent="menu_clover_sales_root"
+              action="clover_employee_action"
+              sequence="30"
+              groups="payment_clover.group_clover_admin"/>
+
+    <menuitem id="menu_clover_sync_now"
+              name="Sync Now"
+              parent="menu_clover_sales_root"
+              action="clover_sync_now_action"
+              sequence="90"
+              groups="payment_clover.group_clover_admin"/>
+
+</odoo>

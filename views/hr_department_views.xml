@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!--
+        Inject the "Employees Can Collect Clover Tips" flag into
+        the standard hr.department form. Placed inside the main
+        info group so it's discoverable without a separate tab.
+    -->
+    <record id="hr_department_form_clover" model="ir.ui.view">
+        <field name="name">hr.department.form.clover</field>
+        <field name="model">hr.department</field>
+        <field name="inherit_id" ref="hr.view_department_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//sheet" position="inside">
+                <group string="Clover">
+                    <field name="x_clover_tips_eligible"/>
+                </group>
+            </xpath>
+        </field>
+    </record>
+
+</odoo>

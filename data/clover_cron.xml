@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data noupdate="1">
+
+        <!--
+            Nightly Clover sync — 2:00 AM local server time.
+
+            Only pulls when at least one payment.provider has
+            code='clover' AND clover_sync_sales=True. Uses the silent
+            context so no emails / notifications fire for any record
+            it creates or updates.
+
+            'nextcall' is set to the next 2 AM after install; Odoo
+            will auto-advance on each run per the interval settings.
+
+            To change the hour: edit the interval or the nextcall in
+            Technical → Scheduled Actions → Clover Nightly Sync,
+            OR bump the module version and adjust this record (it has
+            noupdate="1" so upgrades won't clobber the user's choice
+            unless the record is deleted first).
+        -->
+        <record id="ir_cron_clover_nightly_sync" model="ir.cron">
+            <field name="name">Clover Nightly Sync (sales, tips, employees)</field>
+            <field name="model_id" ref="payment.model_payment_provider"/>
+            <field name="state">code</field>
+            <field name="code">model._clover_cron_run_nightly_sync()</field>
+            <field name="interval_number">1</field>
+            <field name="interval_type">days</field>
+            <field name="active" eval="True"/>
+            <field name="nextcall" eval="(DateTime.now() + relativedelta(days=1, hour=2, minute=0, second=0, microsecond=0))"/>
+        </record>
+
+    </data>
+</odoo>

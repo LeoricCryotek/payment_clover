@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 {
     "name": "Payment Provider: Clover",
-    "version": "19.0.1.22",
+    "version": "19.0.3.0",
     "category": "Accounting/Payment Providers",
     "summary": "Accept payments via Clover (charges, refunds, auth/capture).",
     "description": """
@@ -45,8 +45,16 @@ levels visible on the user form:
     "author": "Danny Santiago",
     "website": "https://dannysantiago.info",
     "license": "LGPL-3",
-    # Truly standalone — only Odoo core modules.
-    "depends": ["payment", "product"],
+    # Odoo core modules only.
+    # 'hr'   — 19.0.2.0: Clover employee sync + tips reporting
+    #          (clover.employee links to hr.employee).
+    # 'sale' — 19.0.2.3: clover.sale.sale_order_id is a Many2one
+    #          to sale.order (populated only when the provider's
+    #          "Auto-Create sale.order Records from Clover Sales"
+    #          toggle is ON — which itself defaults OFF). The Many2one
+    #          still needs sale.order registered at boot, so 'sale'
+    #          must be in depends even when the toggle is off.
+    "depends": ["payment", "product", "hr", "sale"],
     "data": [
         # 1. Security groups must load BEFORE the access CSV references them.
         "security/payment_clover_groups.xml",
@@ -62,9 +70,17 @@ levels visible on the user form:
         "report/clover_transaction_report.xml",
         # 5. Terminal menus + client action (references actions above).
         "views/payment_terminal_views.xml",
-        # 6. Data records (provider record references inline_form view).
+        # 6. Sync engine views + menus (added in 19.0.2.0).
+        #    Depends on menu_clover_root from payment_terminal_views.
+        "views/clover_sync_views.xml",
+        "views/hr_department_views.xml",
+        # Preview wizard menu references menu_clover_sales_root from
+        # clover_sync_views.xml, so it must load AFTER that file.
+        "wizard/clover_sync_preview_wizard_views.xml",
+        # 7. Data records (provider record references inline_form view).
         "data/payment_provider_data.xml",
         "data/payment_method_data.xml",
+        "data/clover_cron.xml",
     ],
     "assets": {
         "web.assets_frontend": [
