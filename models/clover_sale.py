@@ -68,6 +68,35 @@ class CloverSale(models.Model):
         compute="_compute_tip_amount",
         store=True,
     )
+    cost_amount = fields.Float(
+        digits=(12, 2),
+        string="COGS",
+        compute="_compute_cost_amount",
+        store=True,
+        help="Sum of per-line cost_amounts. Line cost comes from the "
+             "linked clover.item.cost (Clover-side item cost, in "
+             "dollars) × unit_qty. Falls back to product standard "
+             "price when the Clover item has no cost recorded.",
+    )
+    net_amount = fields.Float(
+        digits=(12, 2),
+        string="Net Margin",
+        compute="_compute_net_amount",
+        store=True,
+        help="Gross sale total minus COGS. Not GAAP net income — "
+             "this does not deduct labor, fees, taxes, or overhead. "
+             "Bookkeeper's QuickBooks Online books remain "
+             "authoritative for accounting net income.",
+    )
+    customer_display_name = fields.Char(
+        string="Customer",
+        compute="_compute_customer_display_name",
+        store=True,
+        help="Display name used in charts and pivots. Prefers the "
+             "linked Odoo contact's name; falls back to the raw "
+             "Clover customer_name; then 'Walk-in' when Clover sent "
+             "no customer at all.",
+    )
     currency_code = fields.Char(default="USD", size=3)
     state = fields.Char(help="Raw Clover order state (OPEN, PAID, "
                              "LOCKED, ...)")
@@ -100,6 +129,27 @@ class CloverSale(models.Model):
                 sale.tip_ids.filtered(lambda t: not t.is_refunded)
                 .mapped("amount")
             )
+
+    @api.depends("line_ids.cost_amount")
+    def _compute_cost_amount(self):
+        for sale in self:
+            sale.cost_amount = sum(sale.line_ids.mapped("cost_amount"))
+
+    @api.depends("total_amount", "cost_amount")
+    def _compute_net_amount(self):
+        for sale in self:
+            sale.net_amount = (sale.total_amount or 0.0) - (
+                sale.cost_amount or 0.0)
+
+    @api.depends("partner_id", "partner_id.name", "customer_name")
+    def _compute_customer_display_name(self):
+        for sale in self:
+            if sale.partner_id and sale.partner_id.name:
+                sale.customer_display_name = sale.partner_id.name
+            elif sale.customer_name:
+                sale.customer_display_name = sale.customer_name
+            else:
+                sale.customer_display_name = "Walk-in"
 
     def _clover_ensure_sale_order(self):
         """Create a matching sale.order (silent) if not already present.
@@ -241,6 +291,73 @@ class CloverSaleLine(models.Model):
         help="Denormalized from sale_id.date so per-product YTD "
              "rollups can filter on line-level dates efficiently.",
     )
+    unit_cost = fields.Float(
+        digits=(10, 4),
+        string="Unit Cost",
+        compute="_compute_line_cost",
+        store=True,
+        help="Per-unit cost from the linked clover.item (Clover-side "
+             "item cost). Falls back to the Odoo product's "
+             "standard_price when no Clover cost is recorded.",
+    )
+    cost_amount = fields.Float(
+        digits=(12, 2),
+        string="Line COGS",
+        compute="_compute_line_cost",
+        store=True,
+        help="unit_cost × unit_qty — the cost of goods for this line.",
+    )
+    margin_amount = fields.Float(
+        digits=(12, 2),
+        string="Line Margin",
+        compute="_compute_line_cost",
+        store=True,
+        help="amount − cost_amount. Line-level gross margin.",
+    )
+    employee_id = fields.Many2one(
+        "hr.employee",
+        related="sale_id.employee_id",
+        store=True,
+        index=True,
+        string="Cashier",
+        help="Denormalized from sale_id.employee_id so line-level "
+             "reports (Product × Employee, Employee Sales by Day) "
+             "can group without a join.",
+    )
+    partner_id = fields.Many2one(
+        "res.partner",
+        related="sale_id.partner_id",
+        store=True,
+        index=True,
+        string="Customer",
+    )
+    customer_display_name = fields.Char(
+        related="sale_id.customer_display_name",
+        store=True,
+        index=True,
+        string="Customer Name",
+    )
+
+    @api.depends("clover_item_id", "provider_id", "product_id",
+                 "unit_qty", "amount")
+    def _compute_line_cost(self):
+        Item = self.env["clover.item"].sudo()
+        for line in self:
+            unit_cost = 0.0
+            if line.clover_item_id and line.provider_id:
+                item = Item.search([
+                    ("provider_id", "=", line.provider_id.id),
+                    ("clover_item_id", "=", line.clover_item_id),
+                ], limit=1)
+                if item and item.cost:
+                    unit_cost = item.cost
+            # Fallback to Odoo product standard_price when Clover
+            # side has no cost recorded.
+            if not unit_cost and line.product_id:
+                unit_cost = line.product_id.standard_price or 0.0
+            line.unit_cost = unit_cost
+            line.cost_amount = unit_cost * (line.unit_qty or 0.0)
+            line.margin_amount = (line.amount or 0.0) - line.cost_amount
 
     @api.depends("clover_item_id", "provider_id")
     def _compute_product_id(self):

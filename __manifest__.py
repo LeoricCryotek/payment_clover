@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 {
     "name": "Payment Provider: Clover",
-    "version": "19.0.4.2",
+    "version": "19.0.4.5",
     "category": "Accounting/Payment Providers",
     "summary": "Accept payments via Clover (charges, refunds, auth/capture).",
     "description": """
@@ -54,7 +54,9 @@ levels visible on the user form:
     #          toggle is ON — which itself defaults OFF). The Many2one
     #          still needs sale.order registered at boot, so 'sale'
     #          must be in depends even when the toggle is off.
-    "depends": ["payment", "product", "hr", "sale"],
+    # 'board' — 19.0.4.5: Clover Dashboard (board.board form embeds
+    #           our graph/pivot actions as a KPI overview page).
+    "depends": ["payment", "product", "hr", "sale", "board"],
     "data": [
         # 1. Security groups must load BEFORE the access CSV references them.
         "security/payment_clover_groups.xml",
@@ -73,6 +75,15 @@ levels visible on the user form:
         # 6. Sync engine views + menus (added in 19.0.2.0).
         #    Depends on menu_clover_root from payment_terminal_views.
         "views/clover_sync_views.xml",
+        # Reporting suite — loaded after clover_sync_views so its
+        # menu items can nest under menu_clover_root and reference
+        # clover_sale_view_search / clover_tip_view_search.
+        "views/clover_reporting_views.xml",
+        # Dashboard — board.board form combining the reporting
+        # actions. Must load AFTER clover_reporting_views.xml
+        # (references action_clover_report_* records) and AFTER
+        # payment_terminal_views.xml (references menu_clover_root).
+        "views/clover_dashboard_views.xml",
         "views/hr_department_views.xml",
         "views/hr_employee_views.xml",
         "views/product_template_views.xml",

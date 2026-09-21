@@ -1,0 +1,472 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!--
+        ================================================================
+        Clover Reporting
+        ================================================================
+
+        Standardised analytical views on top of the read-only Clover
+        mirror models (clover.sale, clover.sale.line, clover.tip.entry).
+
+        Each report combines list + pivot + graph so users can pick
+        the presentation without switching menus. Pivots let users
+        drill day → week → month → quarter → year via the interval
+        chevrons; graphs default to bar with cumulative measures.
+
+        Nothing here writes back to Odoo accounting — this is
+        visibility-only. QuickBooks Online remains authoritative for
+        the bookkeeper's reconciliation of Clover.
+    -->
+
+    <!-- ================================================================ -->
+    <!-- clover.sale.line — search / list / pivot / graph                 -->
+    <!-- (Currently only embedded in the parent form. Standalone views   -->
+    <!--  are the foundation for Product / Item / Customer reports.)     -->
+    <!-- ================================================================ -->
+    <record id="clover_sale_line_view_list" model="ir.ui.view">
+        <field name="name">clover.sale.line.list</field>
+        <field name="model">clover.sale.line</field>
+        <field name="arch" type="xml">
+            <list string="Clover Sale Lines" default_order="date desc" create="false" delete="false">
+                <field name="date"/>
+                <field name="sale_id" optional="show"/>
+                <field name="employee_id" optional="show"/>
+                <field name="customer_display_name" optional="show"/>
+                <field name="product_id" optional="show"/>
+                <field name="description"/>
+                <field name="unit_qty" sum="Units"/>
+                <field name="unit_cost" optional="hide"/>
+                <field name="cost_amount" sum="COGS" optional="show"/>
+                <field name="amount" sum="Revenue"/>
+                <field name="margin_amount" sum="Margin" optional="show"/>
+                <field name="clover_item_id" optional="hide"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="clover_sale_line_view_search" model="ir.ui.view">
+        <field name="name">clover.sale.line.search</field>
+        <field name="model">clover.sale.line</field>
+        <field name="arch" type="xml">
+            <search>
+                <field name="product_id"/>
+                <field name="description"/>
+                <field name="employee_id"/>
+                <field name="partner_id"/>
+                <field name="customer_display_name" string="Customer Name"/>
+                <field name="clover_item_id"/>
+                <filter name="has_product" string="Linked to Product"
+                        domain="[('product_id', '!=', False)]"/>
+                <filter name="no_product" string="Unlinked (No Odoo Product)"
+                        domain="[('product_id', '=', False)]"/>
+                <separator/>
+                <filter name="has_customer" string="Linked to Customer"
+                        domain="[('partner_id', '!=', False)]"/>
+                <filter name="walk_in" string="Walk-in / No Customer"
+                        domain="[('partner_id', '=', False)]"/>
+                <separator/>
+                <filter name="filter_date" string="Date" date="date"/>
+                <group>
+                    <filter name="grp_product" string="Product"
+                            context="{'group_by': 'product_id'}"/>
+                    <filter name="grp_employee" string="Cashier"
+                            context="{'group_by': 'employee_id'}"/>
+                    <filter name="grp_customer" string="Customer"
+                            context="{'group_by': 'customer_display_name'}"/>
+                    <filter name="grp_date_day" string="Day"
+                            context="{'group_by': 'date:day'}"/>
+                    <filter name="grp_date_week" string="Week"
+                            context="{'group_by': 'date:week'}"/>
+                    <filter name="grp_date_month" string="Month"
+                            context="{'group_by': 'date:month'}"/>
+                    <filter name="grp_date_year" string="Year"
+                            context="{'group_by': 'date:year'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
+    <record id="clover_sale_line_view_pivot" model="ir.ui.view">
+        <field name="name">clover.sale.line.pivot</field>
+        <field name="model">clover.sale.line</field>
+        <field name="arch" type="xml">
+            <pivot string="Sale Lines" sample="1">
+                <field name="product_id" type="row"/>
+                <field name="date" interval="day" type="col"/>
+                <field name="unit_qty" type="measure"/>
+                <field name="amount" type="measure"/>
+                <field name="cost_amount" type="measure"/>
+                <field name="margin_amount" type="measure"/>
+            </pivot>
+        </field>
+    </record>
+
+    <record id="clover_sale_line_view_graph" model="ir.ui.view">
+        <field name="name">clover.sale.line.graph</field>
+        <field name="model">clover.sale.line</field>
+        <field name="arch" type="xml">
+            <graph string="Sale Lines" type="bar" sample="1">
+                <field name="date" interval="day"/>
+                <field name="amount" type="measure"/>
+                <field name="cost_amount" type="measure"/>
+                <field name="margin_amount" type="measure"/>
+            </graph>
+        </field>
+    </record>
+
+    <!-- ================================================================ -->
+    <!-- clover.sale — graph views                                        -->
+    <!-- ================================================================ -->
+    <record id="clover_sale_view_graph_daily" model="ir.ui.view">
+        <field name="name">clover.sale.graph.daily</field>
+        <field name="model">clover.sale</field>
+        <field name="arch" type="xml">
+            <graph string="Daily Sales" type="line" sample="1">
+                <field name="date" interval="day"/>
+                <field name="total_amount" type="measure"/>
+                <field name="net_amount" type="measure"/>
+                <field name="tip_amount" type="measure"/>
+            </graph>
+        </field>
+    </record>
+
+    <record id="clover_sale_view_graph_employee" model="ir.ui.view">
+        <field name="name">clover.sale.graph.employee</field>
+        <field name="model">clover.sale</field>
+        <field name="arch" type="xml">
+            <graph string="Sales by Employee" type="bar" sample="1">
+                <field name="employee_id"/>
+                <field name="date" interval="day"/>
+                <field name="total_amount" type="measure"/>
+            </graph>
+        </field>
+    </record>
+
+    <record id="clover_sale_view_graph_margin" model="ir.ui.view">
+        <field name="name">clover.sale.graph.margin</field>
+        <field name="model">clover.sale</field>
+        <field name="arch" type="xml">
+            <graph string="COGS vs Net Margin" type="bar" sample="1" stacked="1">
+                <field name="date" interval="day"/>
+                <field name="cost_amount" type="measure"/>
+                <field name="net_amount" type="measure"/>
+            </graph>
+        </field>
+    </record>
+
+    <record id="clover_sale_view_graph_customer_pie" model="ir.ui.view">
+        <field name="name">clover.sale.graph.customer.pie</field>
+        <field name="model">clover.sale</field>
+        <field name="arch" type="xml">
+            <graph string="Revenue by Customer" type="pie" sample="1">
+                <field name="customer_display_name"/>
+                <field name="total_amount" type="measure"/>
+            </graph>
+        </field>
+    </record>
+
+    <record id="clover_sale_view_graph_employee_pie" model="ir.ui.view">
+        <field name="name">clover.sale.graph.employee.pie</field>
+        <field name="model">clover.sale</field>
+        <field name="arch" type="xml">
+            <graph string="Revenue by Employee" type="pie" sample="1">
+                <field name="employee_id"/>
+                <field name="total_amount" type="measure"/>
+            </graph>
+        </field>
+    </record>
+
+    <record id="clover_sale_line_view_graph_pie" model="ir.ui.view">
+        <field name="name">clover.sale.line.graph.pie</field>
+        <field name="model">clover.sale.line</field>
+        <field name="arch" type="xml">
+            <graph string="Revenue by Product" type="pie" sample="1">
+                <field name="product_id"/>
+                <field name="amount" type="measure"/>
+            </graph>
+        </field>
+    </record>
+
+    <record id="clover_tip_view_graph_pie" model="ir.ui.view">
+        <field name="name">clover.tip.entry.graph.pie</field>
+        <field name="model">clover.tip.entry</field>
+        <field name="arch" type="xml">
+            <graph string="Tips by Employee" type="pie" sample="1">
+                <field name="employee_id"/>
+                <field name="amount" type="measure"/>
+            </graph>
+        </field>
+    </record>
+
+    <record id="clover_sale_view_pivot_margin" model="ir.ui.view">
+        <field name="name">clover.sale.pivot.margin</field>
+        <field name="model">clover.sale</field>
+        <field name="arch" type="xml">
+            <pivot string="COGS vs Net Margin" sample="1">
+                <field name="date" interval="day" type="row"/>
+                <field name="total_amount" type="measure"/>
+                <field name="cost_amount" type="measure"/>
+                <field name="net_amount" type="measure"/>
+                <field name="tip_amount" type="measure"/>
+            </pivot>
+        </field>
+    </record>
+
+    <record id="clover_sale_view_pivot_customer" model="ir.ui.view">
+        <field name="name">clover.sale.pivot.customer</field>
+        <field name="model">clover.sale</field>
+        <field name="arch" type="xml">
+            <pivot string="Sales by Customer" sample="1">
+                <field name="customer_display_name" type="row"/>
+                <field name="date" interval="month" type="col"/>
+                <field name="total_amount" type="measure"/>
+                <field name="net_amount" type="measure"/>
+            </pivot>
+        </field>
+    </record>
+
+    <record id="clover_sale_view_pivot_employee" model="ir.ui.view">
+        <field name="name">clover.sale.pivot.employee</field>
+        <field name="model">clover.sale</field>
+        <field name="arch" type="xml">
+            <pivot string="Sales by Employee × Day" sample="1">
+                <field name="employee_id" type="row"/>
+                <field name="date" interval="day" type="col"/>
+                <field name="total_amount" type="measure"/>
+                <field name="tip_amount" type="measure"/>
+                <field name="net_amount" type="measure"/>
+            </pivot>
+        </field>
+    </record>
+
+    <!-- ================================================================ -->
+    <!-- clover.tip.entry — graph view                                    -->
+    <!-- ================================================================ -->
+    <record id="clover_tip_view_graph" model="ir.ui.view">
+        <field name="name">clover.tip.entry.graph</field>
+        <field name="model">clover.tip.entry</field>
+        <field name="arch" type="xml">
+            <graph string="Tips" type="bar" sample="1">
+                <field name="employee_id"/>
+                <field name="amount" type="measure"/>
+            </graph>
+        </field>
+    </record>
+
+    <!-- ================================================================ -->
+    <!-- Report actions                                                   -->
+    <!-- ================================================================ -->
+
+    <!-- 1. Sales Overview — line-graph landing showing gross / net / tips. -->
+    <record id="action_clover_report_sales_overview" model="ir.actions.act_window">
+        <field name="name">Sales Overview</field>
+        <field name="res_model">clover.sale</field>
+        <field name="view_mode">graph,pivot,list,form</field>
+        <field name="view_ids" eval="[
+            (5, 0, 0),
+            (0, 0, {'view_mode': 'graph', 'view_id': ref('clover_sale_view_graph_daily')}),
+            (0, 0, {'view_mode': 'pivot', 'view_id': ref('clover_sale_view_pivot_margin')}),
+            (0, 0, {'view_mode': 'list',  'view_id': ref('clover_sale_view_list')}),
+            (0, 0, {'view_mode': 'form',  'view_id': ref('clover_sale_view_form')}),
+        ]"/>
+        <field name="search_view_id" ref="clover_sale_view_search"/>
+        <field name="context">{'search_default_filter_date': 1}</field>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">
+                Sales Overview
+            </p>
+            <p>
+                Daily gross revenue, net margin (after COGS), and
+                tips. Flip to pivot to see day / week / month / year
+                totals side-by-side; use the pivot's interval chevrons
+                to change the period.
+            </p>
+        </field>
+    </record>
+
+    <!-- 2. Employee Performance — sales by employee × day. -->
+    <record id="action_clover_report_employee_perf" model="ir.actions.act_window">
+        <field name="name">Employee Sales by Day</field>
+        <field name="res_model">clover.sale</field>
+        <field name="view_mode">pivot,graph,list</field>
+        <field name="view_ids" eval="[
+            (5, 0, 0),
+            (0, 0, {'view_mode': 'pivot', 'view_id': ref('clover_sale_view_pivot_employee')}),
+            (0, 0, {'view_mode': 'graph', 'view_id': ref('clover_sale_view_graph_employee')}),
+            (0, 0, {'view_mode': 'list',  'view_id': ref('clover_sale_view_list')}),
+        ]"/>
+        <field name="search_view_id" ref="clover_sale_view_search"/>
+        <field name="context">{'search_default_filter_date': 1, 'search_default_grp_employee': 1, 'search_default_grp_date': 1}</field>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">
+                Employee Sales by Day
+            </p>
+            <p>
+                Rows are employees, columns are days. Values are gross,
+                tips, and net margin. Empty rows mean that cashier had
+                no sales in the selected range — use the search bar's
+                Date filter to widen or narrow the window.
+            </p>
+        </field>
+    </record>
+
+    <!-- 3. Customer Sales — sales grouped by linked customer name. -->
+    <record id="action_clover_report_customer_sales" model="ir.actions.act_window">
+        <field name="name">Sales by Customer</field>
+        <field name="res_model">clover.sale</field>
+        <field name="view_mode">pivot,list,form</field>
+        <field name="view_ids" eval="[
+            (5, 0, 0),
+            (0, 0, {'view_mode': 'pivot', 'view_id': ref('clover_sale_view_pivot_customer')}),
+            (0, 0, {'view_mode': 'list',  'view_id': ref('clover_sale_view_list')}),
+            (0, 0, {'view_mode': 'form',  'view_id': ref('clover_sale_view_form')}),
+        ]"/>
+        <field name="search_view_id" ref="clover_sale_view_search"/>
+        <field name="context">{'search_default_filter_date': 1}</field>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">
+                Sales by Customer
+            </p>
+            <p>
+                Sales are attributed by the customer name Clover has
+                on the order — either the linked Odoo contact or, when
+                no match was made, the raw Clover customer name.
+                Walk-in / no-customer sales are grouped under "Walk-in".
+            </p>
+        </field>
+    </record>
+
+    <!-- 4. Item / Product Performance — units, revenue, COGS, margin. -->
+    <record id="action_clover_report_item_sales" model="ir.actions.act_window">
+        <field name="name">Item Sales</field>
+        <field name="res_model">clover.sale.line</field>
+        <field name="view_mode">pivot,graph,list</field>
+        <field name="view_ids" eval="[
+            (5, 0, 0),
+            (0, 0, {'view_mode': 'pivot', 'view_id': ref('clover_sale_line_view_pivot')}),
+            (0, 0, {'view_mode': 'graph', 'view_id': ref('clover_sale_line_view_graph')}),
+            (0, 0, {'view_mode': 'list',  'view_id': ref('clover_sale_line_view_list')}),
+        ]"/>
+        <field name="search_view_id" ref="clover_sale_line_view_search"/>
+        <field name="context">{'search_default_filter_date': 1, 'search_default_grp_product': 1}</field>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">
+                Item Sales
+            </p>
+            <p>
+                Units sold, revenue, COGS, and margin — grouped by
+                Odoo product. Lines whose Clover item isn't linked to
+                an Odoo product yet show under "Undefined" in the
+                Product row; use "Recompute Sale-Line Links" on the
+                provider form after linking items to backfill them.
+            </p>
+        </field>
+    </record>
+
+    <!-- 5. COGS vs Net Margin — day/week/month/year. -->
+    <record id="action_clover_report_cogs_margin" model="ir.actions.act_window">
+        <field name="name">COGS vs Net Margin</field>
+        <field name="res_model">clover.sale</field>
+        <field name="view_mode">graph,pivot,list</field>
+        <field name="view_ids" eval="[
+            (5, 0, 0),
+            (0, 0, {'view_mode': 'graph', 'view_id': ref('clover_sale_view_graph_margin')}),
+            (0, 0, {'view_mode': 'pivot', 'view_id': ref('clover_sale_view_pivot_margin')}),
+            (0, 0, {'view_mode': 'list',  'view_id': ref('clover_sale_view_list')}),
+        ]"/>
+        <field name="search_view_id" ref="clover_sale_view_search"/>
+        <field name="context">{'search_default_filter_date': 1}</field>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">
+                COGS vs Net Margin
+            </p>
+            <p>
+                Stacked view: item cost (COGS) at the base and net
+                margin on top. Flip to pivot for period totals — the
+                date column's chevron switches between day, week,
+                month, quarter, and year. NOT accounting net income:
+                labor, fees, taxes, and overhead are not deducted.
+                QBO remains the source of truth for accounting.
+            </p>
+        </field>
+    </record>
+
+    <!-- 6. Tips Ledger — enhanced with graph view. -->
+    <record id="action_clover_report_tips" model="ir.actions.act_window">
+        <field name="name">Tips Ledger</field>
+        <field name="res_model">clover.tip.entry</field>
+        <field name="view_mode">graph,pivot,list</field>
+        <field name="view_ids" eval="[
+            (5, 0, 0),
+            (0, 0, {'view_mode': 'graph', 'view_id': ref('clover_tip_view_graph')}),
+            (0, 0, {'view_mode': 'pivot', 'view_id': ref('clover_tip_view_pivot')}),
+            (0, 0, {'view_mode': 'list',  'view_id': ref('clover_tip_view_list')}),
+        ]"/>
+        <field name="search_view_id" ref="clover_tip_view_search"/>
+        <field name="context">{'search_default_only_personal': 1, 'search_default_filter_date': 1}</field>
+    </record>
+
+    <!-- ================================================================ -->
+    <!-- Menu structure — Clover → Dashboard → Reports                    -->
+    <!--                                                                  -->
+    <!-- Dashboard is the top-level menu (sequence 5, so it opens first   -->
+    <!-- when the user clicks the Clover app icon). Underneath it:        -->
+    <!--   * Overview   — the KPI board.board page (in clover_dashboard). -->
+    <!--   * Reports    — grouping of the drill-down reports below.       -->
+    <!-- ================================================================ -->
+    <menuitem id="menu_clover_reporting_root"
+              name="Dashboard"
+              parent="menu_clover_root"
+              sequence="5"
+              groups="payment_clover.group_clover_user"/>
+
+    <menuitem id="menu_clover_reports_group"
+              name="Reports"
+              parent="menu_clover_reporting_root"
+              sequence="10"
+              groups="payment_clover.group_clover_user"/>
+
+    <menuitem id="menu_clover_report_sales_overview"
+              name="Sales Overview"
+              parent="menu_clover_reports_group"
+              action="action_clover_report_sales_overview"
+              sequence="10"
+              groups="payment_clover.group_clover_user"/>
+
+    <menuitem id="menu_clover_report_employee_perf"
+              name="Employee Sales by Day"
+              parent="menu_clover_reports_group"
+              action="action_clover_report_employee_perf"
+              sequence="20"
+              groups="payment_clover.group_clover_user"/>
+
+    <menuitem id="menu_clover_report_customer_sales"
+              name="Sales by Customer"
+              parent="menu_clover_reports_group"
+              action="action_clover_report_customer_sales"
+              sequence="30"
+              groups="payment_clover.group_clover_user"/>
+
+    <menuitem id="menu_clover_report_item_sales"
+              name="Item Sales"
+              parent="menu_clover_reports_group"
+              action="action_clover_report_item_sales"
+              sequence="40"
+              groups="payment_clover.group_clover_user"/>
+
+    <menuitem id="menu_clover_report_cogs_margin"
+              name="COGS vs Net Margin"
+              parent="menu_clover_reports_group"
+              action="action_clover_report_cogs_margin"
+              sequence="50"
+              groups="payment_clover.group_clover_user"/>
+
+    <menuitem id="menu_clover_report_tips"
+              name="Tips Ledger"
+              parent="menu_clover_reports_group"
+              action="action_clover_report_tips"
+              sequence="60"
+              groups="payment_clover.group_clover_user"/>
+
+</odoo>

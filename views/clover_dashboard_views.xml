@@ -1,0 +1,92 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!--
+        ================================================================
+        Clover Dashboard — Overview
+        ================================================================
+
+        Combines the reporting actions into a single form using Odoo's
+        board.board mechanism (part of the 'board' Community module).
+
+        board.board renders each <action .../> as an embedded widget
+        (its default view mode for that action). We line up the graphs
+        first so they read as a KPI dashboard: line chart of daily
+        sales at the top, then a pie showing revenue mix by customer /
+        product, then the pivot summarising COGS vs Net Margin.
+
+        Users can:
+        * Drag the widget headers to reorder / resize them (state is
+          saved per-user on board.board).
+        * Click a widget's title to open the full report.
+        * Use the switch-view buttons inside each widget to flip
+          between Bar / Line / Pie (graph) or list ↔ pivot without
+          leaving the dashboard.
+    -->
+
+    <record id="clover_dashboard_view_form" model="ir.ui.view">
+        <field name="name">clover.dashboard.form</field>
+        <field name="model">board.board</field>
+        <field name="arch" type="xml">
+            <form string="Clover Dashboard">
+                <board style="2-1">
+                    <column>
+                        <action string="Daily Sales Trend"
+                                name="%(payment_clover.action_clover_report_sales_overview)d"
+                                view_mode="graph"/>
+                        <action string="COGS vs Net Margin"
+                                name="%(payment_clover.action_clover_report_cogs_margin)d"
+                                view_mode="graph"/>
+                        <action string="Item Sales (Top Products)"
+                                name="%(payment_clover.action_clover_report_item_sales)d"
+                                view_mode="graph"/>
+                    </column>
+                    <column>
+                        <action string="Sales by Employee"
+                                name="%(payment_clover.action_clover_report_employee_perf)d"
+                                view_mode="graph"/>
+                        <action string="Sales by Customer"
+                                name="%(payment_clover.action_clover_report_customer_sales)d"
+                                view_mode="pivot"/>
+                        <action string="Tips Ledger"
+                                name="%(payment_clover.action_clover_report_tips)d"
+                                view_mode="graph"/>
+                    </column>
+                </board>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_clover_dashboard" model="ir.actions.act_window">
+        <field name="name">Clover Dashboard</field>
+        <field name="res_model">board.board</field>
+        <field name="view_mode">form</field>
+        <field name="view_id" ref="clover_dashboard_view_form"/>
+        <field name="usage">menu</field>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">
+                Clover Dashboard
+            </p>
+            <p>
+                Drag any widget to reorder it. Click the widget title
+                to open the full underlying report. Use the toolbar
+                inside each widget to switch between bar, line, and
+                pie chart, or between list and pivot table views.
+            </p>
+        </field>
+    </record>
+
+    <!--
+        Dashboard Overview menuitem — sequence 5 so it opens first
+        under the Dashboard group. Placed here (not in the reporting
+        file) because it depends on the board.board mechanism and the
+        action record above.
+    -->
+    <menuitem id="menu_clover_dashboard_overview"
+              name="Overview"
+              parent="menu_clover_reporting_root"
+              action="action_clover_dashboard"
+              sequence="5"
+              groups="payment_clover.group_clover_user"/>
+
+</odoo>

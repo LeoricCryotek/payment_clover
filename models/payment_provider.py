@@ -686,6 +686,68 @@ class PaymentProvider(models.Model):
                 return
             offset += page_size
 
+    def action_clover_recompute_sale_line_links(self):
+        """Force product_id + unit_qty backfill on every clover.sale.line.
+
+        Handy when:
+        * A prior sync ran before the product_id compute existed
+        * Clover items got linked to products AFTER the sales came
+          in (product_id was blank at sync time, needs recompute)
+        * unit_qty is 0 on old lines from before we defaulted to 1
+
+        Iterates in batches so it doesn't blow memory on tens of
+        thousands of lines. Shows a completion notification with
+        the counts touched.
+        """
+        self.ensure_one()
+        Line = self.env["clover.sale.line"].sudo()
+        lines = Line.search([])
+        if not lines:
+            return {
+                "type": "ir.actions.client",
+                "tag": "display_notification",
+                "params": {
+                    "title": _("Nothing to Recompute"),
+                    "message": _("No clover.sale.line records "
+                                 "found. Run a sync first."),
+                    "type": "warning",
+                },
+            }
+        # Fix unit_qty = 0 leftovers (each Clover line is 1 unit
+        # unless weighed — we default to 1.0 going forward).
+        zero_qty = lines.filtered(lambda l: not l.unit_qty)
+        if zero_qty:
+            zero_qty.write({"unit_qty": 1.0})
+        # Force the product_id stored compute to re-evaluate.
+        lines.invalidate_recordset(
+            ["product_id", "provider_id", "date"])
+        lines._compute_product_id()
+        # Persist to DB.
+        lines.flush_recordset(["product_id", "provider_id", "date"])
+        linked = lines.filtered(lambda l: l.product_id)
+        return {
+            "type": "ir.actions.client",
+            "tag": "display_notification",
+            "params": {
+                "title": _("Clover Sale Lines Recomputed"),
+                "message": _(
+                    "Backfilled %(qty)s lines to unit_qty=1. "
+                    "Recomputed product_id on %(total)s lines — "
+                    "%(linked)s now linked to a product, "
+                    "%(unlinked)s still unlinked (item not in "
+                    "Clover Items, or Clover Item not linked to "
+                    "an Odoo product on Clover → Configuration → "
+                    "Clover Items).",
+                    qty=len(zero_qty),
+                    total=len(lines),
+                    linked=len(linked),
+                    unlinked=len(lines) - len(linked),
+                ),
+                "type": "success",
+                "sticky": True,
+            },
+        }
+
     def action_sync_clover_employees(self):
         """Manual button — pull the Clover employee roster into Odoo
         so the Configuration → Clover Employees tab is populated
@@ -1280,17 +1342,30 @@ class PaymentProvider(models.Model):
                 sale = CloverSale.create(sale_vals)
             stats["sales"] += 1
 
-            # Line items
+            # Line items — Clover sends each line item as ONE unit
+            # by default. unitQty is only populated for weighed
+            # items (deli, bulk goods) and is expressed in
+            # thousandths of a unit (e.g. 1500 = 1.5 lbs). For
+            # regular per-unit items (drinks, single-item food) the
+            # cashier rings multiples as separate line items, so
+            # default to 1.0 when unitQty is absent — otherwise a
+            # bar's entire nightly volume shows as 0 units on every
+            # product report.
             line_items = ((order.get("lineItems") or {}).get("elements")
                           or [])
             for li in line_items:
                 item = li.get("item") or {}
+                raw_qty = li.get("unitQty")
+                if raw_qty:
+                    unit_qty = raw_qty / 1000.0
+                else:
+                    unit_qty = 1.0
                 line_vals = {
                     "sale_id": sale.id,
                     "clover_line_id": li.get("id") or "",
                     "clover_item_id": item.get("id") or "",
                     "description": li.get("name") or "",
-                    "unit_qty": li.get("unitQty") or 0,
+                    "unit_qty": unit_qty,
                     "amount": (li.get("price", 0) or 0) / 100.0,
                     "note": (li.get("note") or "")[:500],
                 }

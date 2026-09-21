@@ -2,6 +2,26 @@
 <odoo>
 
     <!--
+        Action: opens Clover Sale Lines filtered to lines whose
+        product_id belongs to the current product.template's
+        variants. Wired to the Clover Sales smart button on the
+        product form so managers can click through from any product
+        to see every Clover sale that included it.
+    -->
+    <record id="action_clover_sale_lines_for_product"
+            model="ir.actions.act_window">
+        <field name="name">Clover Sales for This Product</field>
+        <field name="res_model">clover.sale.line</field>
+        <field name="view_mode">list,pivot,graph</field>
+        <field name="domain">
+            [('product_id', 'in', active_ids)]
+        </field>
+        <field name="context">
+            {'search_default_grp_date': 1}
+        </field>
+    </record>
+
+    <!--
         Adds a "Clover POS" tab to product.template.form so a
         manager can open any product and see how it performs at the
         Clover terminal — YTD units sold, revenue, order count, last
@@ -17,6 +37,27 @@
         <field name="model">product.template</field>
         <field name="inherit_id" ref="product.product_template_form_view"/>
         <field name="arch" type="xml">
+            <!--
+                Smart button in the header: shows YTD Clover units
+                sold, clicks through to the filtered clover.sale.line
+                list. Sits alongside "Sold" (native Odoo), so users
+                see Clover volume at a glance without opening the
+                Clover POS tab.
+            -->
+            <xpath expr="//div[@name='button_box']" position="inside">
+                <button name="%(action_clover_sale_lines_for_product)d"
+                        type="action"
+                        class="oe_stat_button"
+                        icon="fa-shopping-cart"
+                        context="{'active_ids': product_variant_ids and product_variant_ids.ids or []}"
+                        groups="payment_clover.group_clover_user">
+                    <div class="o_stat_info">
+                        <field name="x_clover_units_sold_ytd"
+                               widget="statinfo" nolabel="1"/>
+                        <span class="o_stat_text">Clover Units (YTD)</span>
+                    </div>
+                </button>
+            </xpath>
             <xpath expr="//notebook" position="inside">
                 <page string="Clover POS" name="clover_pos"
                       groups="payment_clover.group_clover_user">

@@ -116,6 +116,13 @@
                             class="btn-secondary"
                             icon="fa-search"
                             invisible="code != 'clover' or not clover_sync_sales"/>
+                    <button name="action_clover_recompute_sale_line_links"
+                            string="Recompute Sale-Line Links"
+                            type="object"
+                            class="btn-link"
+                            icon="fa-magic"
+                            invisible="code != 'clover' or not clover_sync_sales"
+                            help="Re-runs the product_id compute + backfills unit_qty=1 on every clover.sale.line. Use after linking a Clover Item to a product, or when historical lines from an early sync are missing product attribution."/>
                 </header>
             </xpath>
 

@@ -46,18 +46,26 @@
               sequence="200"
               groups="payment_clover.group_clover_user"/>
 
+    <!--
+        Terminal is no longer the default landing page under the
+        Clover app icon (Dashboard, at sequence 5, opens first).
+        Sequence 40 puts Terminal after Dashboard (5), Sales (15)
+        and Reports content but before Configuration (100). The
+        menu label is trimmed from "Payment Terminal" to "Terminal"
+        for the shorter breadcrumb.
+    -->
     <menuitem id="menu_clover_terminal"
-              name="Payment Terminal"
+              name="Terminal"
               parent="menu_clover_root"
               action="action_clover_payment_terminal"
-              sequence="10"
+              sequence="40"
               groups="payment_clover.group_clover_user"/>
 
     <menuitem id="menu_clover_transactions"
               name="Transaction Log"
               parent="menu_clover_root"
               action="action_clover_transactions"
-              sequence="20"
+              sequence="50"
               groups="payment_clover.group_clover_user"/>
 
     <!-- Admin-only menus -->
@@ -65,7 +73,7 @@
               name="Transaction Report"
               parent="menu_clover_root"
               action="action_clover_transaction_report_wizard"
-              sequence="30"
+              sequence="60"
               groups="payment_clover.group_clover_admin"/>
 
     <menuitem id="menu_clover_provider_config"
