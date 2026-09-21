@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <data noupdate="1">
+
+        <!--
+            Holding-pen department for Clover-import employees.
+
+            When the sync auto-creates an hr.employee (because a
+            Clover cashier has no existing match in Odoo), the new
+            record lands here — NOT in whatever the "default" HR
+            department is, and NOT scattered across your real
+            departments. This gives an admin a single place to
+            review Clover imports and drag each one to its correct
+            department (Bar, Kitchen, Volunteers, …).
+
+            Defaults:
+              * name: Clover Import (Review)
+              * x_clover_tips_eligible = True  — so tips still count
+                as personal by default; if you'd rather flag them
+                unclaimed until reviewed, tick the checkbox off on
+                this department record.
+
+            noupdate="1" means once you rename or reconfigure this
+            department, module upgrades won't reset your changes.
+        -->
+        <record id="hr_department_clover_import" model="hr.department">
+            <field name="name">Clover Import (Review)</field>
+            <field name="x_clover_tips_eligible" eval="True"/>
+            <field name="note">Auto-created holding-pen department for
+                employees imported from Clover POS. Move each employee
+                to their correct department (Bar, Kitchen, Volunteers,
+                etc.) after reviewing name, email, and role. Employees
+                stay here until manually reassigned. Filter HR →
+                Employees by department = "Clover Import (Review)"
+                to see everyone waiting for review.</field>
+        </record>
+
+    </data>
+</odoo>

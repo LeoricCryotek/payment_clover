@@ -156,13 +156,28 @@ class PaymentProvider(models.Model):
              "runs once per interval; the first run is N hours after "
              "you save.",
     )
-    clover_sync_hour = fields.Integer(
-        string="Sync at Hour (0–23)",
-        default=2,
-        help="For 'Daily' frequency. 0 = midnight, 2 = 2 AM, 14 = "
-             "2 PM. Uses the Odoo server's local timezone (check "
-             "with your admin if you're not sure what that is).",
+    clover_sync_hour = fields.Selection(
+        selection="_get_clover_sync_hour_options",
+        string="Sync at Hour",
+        default="2",
+        help="For 'Daily' frequency. Interpreted in YOUR local "
+             "timezone (the tz on your Odoo user profile), then "
+             "converted to UTC internally for the cron. If your tz "
+             "says Pacific and you pick 2:00 AM, the sync runs at "
+             "2:00 AM Pacific — regardless of what tz the server "
+             "itself is in.",
     )
+
+    @api.model
+    def _get_clover_sync_hour_options(self):
+        """24 human-readable hourly options: 12:00 AM through 11:00 PM."""
+        return [
+            (str(i), "%d:00 %s" % (
+                12 if i % 12 == 0 else i % 12,
+                "AM" if i < 12 else "PM",
+            ))
+            for i in range(24)
+        ]
     clover_next_scheduled_sync_at = fields.Datetime(
         string="Next Auto-Sync At",
         compute="_compute_clover_next_scheduled_sync_at",
@@ -810,29 +825,44 @@ class PaymentProvider(models.Model):
         ], order="id", limit=1)
 
         from datetime import timedelta
+        import pytz
         if not eligible:
             cron.active = False
             return
         prov = eligible
 
         cron.active = True
-        now = fields.Datetime.now()
+        now = fields.Datetime.now()  # naive UTC
         if prov.clover_sync_frequency == "hourly":
             n = max(1, min(24, prov.clover_sync_interval_hours or 4))
             cron.interval_number = n
             cron.interval_type = "hours"
             cron.nextcall = now + timedelta(hours=n)
         elif prov.clover_sync_frequency == "daily":
-            h = max(0, min(23, prov.clover_sync_hour or 2))
-            target = now.replace(
+            # Interpret clover_sync_hour in the user's local tz so
+            # "2 AM" means 2 AM Pacific for a Pacific user — not
+            # 2 AM UTC, which is what the naive replace would give.
+            # Then convert back to UTC for storage on the cron.
+            h = int(prov.clover_sync_hour or "2")
+            h = max(0, min(23, h))
+            tz_name = (
+                self.env.user.tz
+                or self.env.company.partner_id.tz
+                or "UTC"
+            )
+            tz = pytz.timezone(tz_name)
+            now_local = pytz.utc.localize(now).astimezone(tz)
+            target_local = now_local.replace(
                 hour=h, minute=0, second=0, microsecond=0)
-            if target <= now:
-                target = target + timedelta(days=1)
+            if target_local <= now_local:
+                target_local = target_local + timedelta(days=1)
+            target_utc = target_local.astimezone(
+                pytz.utc).replace(tzinfo=None)
             cron.interval_number = 1
             cron.interval_type = "days"
-            cron.nextcall = target
+            cron.nextcall = target_utc
         _logger.info(
-            "Clover: cron rescheduled — frequency=%s, next=%s",
+            "Clover: cron rescheduled — frequency=%s, next=%s (UTC)",
             prov.clover_sync_frequency, cron.nextcall,
         )
 
@@ -942,9 +972,16 @@ class PaymentProvider(models.Model):
             role = el.get("role") or ""
             # Clover creates a default "Float" profile that isn't a
             # real person. Flag it so it's excluded from tip reports.
+            # Clover's default is named "Float", but some merchants
+            # end up with "Float Profile", "Float User", etc. Match
+            # any nickname / name / role variant so all of them get
+            # flagged out of personal tip reports.
+            def _is_float_token(v):
+                v = (v or "").strip().lower()
+                return v == "float" or v.startswith("float ")
             is_float = (
-                nickname.lower() == "float"
-                or name.lower() == "float"
+                _is_float_token(nickname)
+                or _is_float_token(name)
                 or role.upper() == "FLOAT"
             )
 
@@ -974,19 +1011,27 @@ class PaymentProvider(models.Model):
                     # auto-create one silently. Every Clover cashier
                     # must exist in Odoo so their sales/tips can be
                     # attributed. Marked x_clover_auto_created=True
-                    # so admins can review and finish setup
-                    # (department, work phone, manager, etc.).
+                    # so admins can review and finish setup, and
+                    # routed to the "Clover Import (Review)"
+                    # holding-pen department so it's easy to find
+                    # them among a large employee roster.
+                    dept = self.env.ref(
+                        "payment_clover.hr_department_clover_import",
+                        raise_if_not_found=False,
+                    )
                     new_emp = HrEmp.create({
                         "name": name,
                         "work_email": email or False,
                         "x_clover_auto_created": True,
+                        "department_id": dept.id if dept else False,
                     })
                     employee_id = new_emp.id
                     stats["hr_created"] += 1
                     _logger.info(
                         "Clover: auto-created hr.employee %s "
-                        "(%s) for Clover cashier %s",
+                        "(%s) for Clover cashier %s in dept %s",
                         new_emp.id, name, clover_id,
+                        dept.name if dept else "(none)",
                     )
 
             vals = {
@@ -1264,9 +1309,16 @@ class PaymentProvider(models.Model):
             nickname = el.get("nickname") or ""
             email = (el.get("email") or "").strip().lower()
             role = el.get("role") or ""
+            # Clover's default is named "Float", but some merchants
+            # end up with "Float Profile", "Float User", etc. Match
+            # any nickname / name / role variant so all of them get
+            # flagged out of personal tip reports.
+            def _is_float_token(v):
+                v = (v or "").strip().lower()
+                return v == "float" or v.startswith("float ")
             is_float = (
-                nickname.lower() == "float"
-                or name.lower() == "float"
+                _is_float_token(nickname)
+                or _is_float_token(name)
                 or role.upper() == "FLOAT"
             )
 

@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 {
     "name": "Payment Provider: Clover",
-    "version": "19.0.3.2",
+    "version": "19.0.3.4",
     "category": "Accounting/Payment Providers",
     "summary": "Accept payments via Clover (charges, refunds, auth/capture).",
     "description": """
@@ -74,6 +74,7 @@ levels visible on the user form:
         #    Depends on menu_clover_root from payment_terminal_views.
         "views/clover_sync_views.xml",
         "views/hr_department_views.xml",
+        "views/hr_employee_views.xml",
         # Preview wizard menu references menu_clover_sales_root from
         # clover_sync_views.xml, so it must load AFTER that file.
         "wizard/clover_sync_preview_wizard_views.xml",
@@ -81,6 +82,10 @@ levels visible on the user form:
         "data/payment_provider_data.xml",
         "data/payment_method_data.xml",
         "data/clover_cron.xml",
+        # Holding-pen department for Clover-auto-created hr.employees.
+        # Loaded after hr_department_views (needs
+        # x_clover_tips_eligible field defined).
+        "data/hr_department_data.xml",
     ],
     "assets": {
         "web.assets_frontend": [

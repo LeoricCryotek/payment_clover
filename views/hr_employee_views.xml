@@ -1,0 +1,85 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!--
+        Add a "Clover" tab to the hr.employee form so a manager can
+        open any employee and see their Clover POS activity: sales
+        rung, tips collected (personal / gratuity / unclaimed
+        breakdown), and the mirror links. Also expose the year-to-date
+        rollups on the header for quick reporting.
+    -->
+    <record id="hr_employee_form_clover" model="ir.ui.view">
+        <field name="name">hr.employee.form.clover</field>
+        <field name="model">hr.employee</field>
+        <field name="inherit_id" ref="hr.view_employee_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//notebook" position="inside">
+                <page string="Clover POS" name="clover_pos"
+                      groups="payment_clover.group_clover_user">
+                    <group>
+                        <group string="This Employee's Clover Activity">
+                            <field name="x_clover_auto_created"
+                                   readonly="1"/>
+                            <field name="x_clover_tips_this_period"
+                                   readonly="1"
+                                   widget="monetary"/>
+                            <field name="x_clover_tips_ytd"
+                                   readonly="1"
+                                   widget="monetary"/>
+                            <field name="x_clover_sales_ytd"
+                                   readonly="1"
+                                   widget="monetary"/>
+                            <field name="x_clover_sales_count_ytd"
+                                   readonly="1"/>
+                        </group>
+                        <group string="Clover Employee Mirror(s)">
+                            <field name="x_clover_employee_ids"
+                                   nolabel="1" readonly="1">
+                                <list>
+                                    <field name="name"/>
+                                    <field name="nickname"/>
+                                    <field name="email"/>
+                                    <field name="role"/>
+                                    <field name="is_float"/>
+                                    <field name="exclude_from_reports"/>
+                                </list>
+                            </field>
+                        </group>
+                    </group>
+                    <notebook>
+                        <page string="Recent Tips" name="clover_tips">
+                            <field name="x_clover_tip_ids"
+                                   nolabel="1" readonly="1"
+                                   options="{'default_order': 'date desc'}">
+                                <list default_order="date desc"
+                                      decoration-muted="is_refunded or is_event_gratuity or is_unclaimed">
+                                    <field name="date"/>
+                                    <field name="amount" sum="Total"/>
+                                    <field name="is_event_gratuity"/>
+                                    <field name="is_unclaimed"/>
+                                    <field name="is_refunded"/>
+                                    <field name="clover_sale_id"/>
+                                </list>
+                            </field>
+                        </page>
+                        <page string="Recent Sales" name="clover_sales">
+                            <field name="x_clover_sale_ids"
+                                   nolabel="1" readonly="1">
+                                <list default_order="date desc">
+                                    <field name="date"/>
+                                    <field name="clover_order_id"/>
+                                    <field name="total_amount"
+                                           sum="Total"/>
+                                    <field name="tip_amount"
+                                           sum="Tips"/>
+                                    <field name="state"/>
+                                </list>
+                            </field>
+                        </page>
+                    </notebook>
+                </page>
+            </xpath>
+        </field>
+    </record>
+
+</odoo>
