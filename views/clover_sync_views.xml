@@ -246,10 +246,13 @@
                 <filter name="unpaid" string="Unpaid"
                         domain="[('is_paid', '=', False)]"/>
                 <separator/>
-                <filter name="today" string="Today"
-                        domain="[('date', '>=', context_today().strftime('%Y-%m-%d'))]"/>
-                <filter name="this_month" string="This Month"
-                        domain="[('date', '>=', (context_today().replace(day=1)).strftime('%Y-%m-%d'))]"/>
+                <!-- Date-range widget: auto-generates Today/This
+                     Week/This Month/etc. sub-filters, JS-evaluable
+                     unlike raw context_today() calls. -->
+                <filter name="filter_date"
+                        string="Date"
+                        date="date"
+                        default_period="this_month"/>
                 <group>
                     <filter name="grp_employee" string="Employee"
                             context="{'group_by': 'employee_id'}"/>
@@ -277,7 +280,10 @@
         <field name="name">Clover Sales</field>
         <field name="res_model">clover.sale</field>
         <field name="view_mode">list,form,pivot</field>
-        <field name="context">{'search_default_this_month': 1}</field>
+        <!-- Date filter defaults to This Month via the widget's
+             default_period; no client-side domain evaluation
+             needed on load. -->
+        <field name="context">{}</field>
     </record>
 
     <!-- ================================================================ -->
@@ -324,10 +330,12 @@
                         string="Unassigned to Employee"
                         domain="[('employee_id', '=', False), ('is_event_gratuity', '=', False), ('is_unclaimed', '=', False)]"/>
                 <separator/>
-                <filter name="today" string="Today"
-                        domain="[('date', '>=', context_today().strftime('%Y-%m-%d'))]"/>
-                <filter name="this_month" string="This Month"
-                        domain="[('date', '>=', (context_today().replace(day=1)).strftime('%Y-%m-%d'))]"/>
+                <!-- Date-range widget replaces raw context_today()
+                     domains (JS-safe in Odoo 19). -->
+                <filter name="filter_date"
+                        string="Date"
+                        date="date"
+                        default_period="this_month"/>
                 <group>
                     <filter name="grp_employee" string="Employee"
                             context="{'group_by': 'employee_id'}"/>
@@ -354,7 +362,7 @@
         <field name="name">Clover Tips</field>
         <field name="res_model">clover.tip.entry</field>
         <field name="view_mode">list,pivot</field>
-        <field name="context">{'search_default_only_personal': 1, 'search_default_this_month': 1}</field>
+        <field name="context">{'search_default_only_personal': 1}</field>
     </record>
 
     <!-- ================================================================ -->

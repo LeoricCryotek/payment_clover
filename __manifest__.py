@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 {
     "name": "Payment Provider: Clover",
-    "version": "19.0.3.8",
+    "version": "19.0.4.1",
     "category": "Accounting/Payment Providers",
     "summary": "Accept payments via Clover (charges, refunds, auth/capture).",
     "description": """
@@ -75,6 +75,7 @@ levels visible on the user form:
         "views/clover_sync_views.xml",
         "views/hr_department_views.xml",
         "views/hr_employee_views.xml",
+        "views/product_template_views.xml",
         # Preview wizard menu references menu_clover_sales_root from
         # clover_sync_views.xml, so it must load AFTER that file.
         "wizard/clover_sync_preview_wizard_views.xml",

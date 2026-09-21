@@ -1622,17 +1622,21 @@ class PaymentProvider(models.Model):
             emp_decisions.append(decision)
 
         # -------- Sales (last N orders) -------------------------------
+        # The `expand` parameter MUST be sent alongside the limit, or
+        # Clover returns bare order rows with no lineItems, no
+        # customer info, and no employee — which caused every preview
+        # row to show blank Cashier / Customer / Line Count of 0.
         sale_decisions = []
-        sale_params = {
-            "expand": ("lineItems,payments,payments.tender,"
-                       "payments.employee,customers,employee"),
-            "limit": sample_size,
-        }
+        expand = (
+            "lineItems,payments,payments.tender,"
+            "payments.employee,customers,employee"
+        )
         # We DON'T use a modifiedTime filter here — preview shows the
         # freshest N orders regardless of what the last sync saw.
         sale_path = (
             f"/v3/merchants/{self.clover_merchant_id}/orders"
             f"?limit={int(sample_size)}"
+            f"&expand={expand}"
         )
         try:
             data = self._clover_platform_request("GET", sale_path)
@@ -1745,6 +1749,23 @@ class PaymentProvider(models.Model):
                     )
                     partner_action = "create"
 
+            # Build a human-readable line-item summary for the
+            # preview form. One row per Clover line item, showing
+            # name × qty @ per-line amount so admins can spot
+            # obvious garbage (missing names, huge quantities) before
+            # committing.
+            summary_rows = []
+            for li in line_items:
+                li_name = (li.get("name") or li.get("alternateName")
+                           or "(unnamed)").strip()
+                li_qty = li.get("unitQty") or 1
+                li_price_cents = li.get("price", 0) or 0
+                summary_rows.append(
+                    f"• {li_name} × {li_qty}  —  "
+                    f"${li_price_cents / 100.0:.2f}"
+                )
+            line_summary = "\n".join(summary_rows) if summary_rows else ""
+
             sale_decisions.append({
                 "clover_order_id": clover_order_id,
                 "date": ts_dt,
@@ -1755,6 +1776,7 @@ class PaymentProvider(models.Model):
                 "total_amount": total_cents / 100.0,
                 "tip_amount": tip_cents / 100.0,
                 "line_count": len(line_items),
+                "line_summary": line_summary,
                 "sale_action": sale_action,
                 "partner_action": partner_action,
                 "matched_partner_id": partner.id if partner else False,

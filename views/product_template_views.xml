@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!--
+        Adds a "Clover POS" tab to product.template.form so a
+        manager can open any product and see how it performs at the
+        Clover terminal — YTD units sold, revenue, order count, last
+        sold date, and every clover.sale.line that referenced this
+        product (with drill-through to the parent Clover order).
+
+        Visible to Clover Users; Clover Admins can also flip the
+        exclude-from-employee-tips flag on the underlying
+        clover.item from the Clover Configuration → Clover Items tab.
+    -->
+    <record id="product_template_form_clover" model="ir.ui.view">
+        <field name="name">product.template.form.clover</field>
+        <field name="model">product.template</field>
+        <field name="inherit_id" ref="product.product_template_form_view"/>
+        <field name="arch" type="xml">
+            <xpath expr="//notebook" position="inside">
+                <page string="Clover POS" name="clover_pos"
+                      groups="payment_clover.group_clover_user">
+                    <group>
+                        <group string="Year-to-Date">
+                            <field name="x_clover_units_sold_ytd"
+                                   readonly="1"/>
+                            <field name="x_clover_revenue_ytd"
+                                   readonly="1"
+                                   widget="monetary"/>
+                            <field name="x_clover_sale_count_ytd"
+                                   readonly="1"/>
+                            <field name="x_clover_last_sold_at"
+                                   readonly="1"/>
+                        </group>
+                    </group>
+                    <field name="x_clover_sale_line_ids"
+                           nolabel="1" readonly="1">
+                        <list default_order="date desc" limit="200">
+                            <field name="date"/>
+                            <field name="sale_id"/>
+                            <field name="description"/>
+                            <field name="unit_qty" sum="Total Units"/>
+                            <field name="amount" sum="Total Amount"/>
+                            <field name="note" optional="hide"/>
+                        </list>
+                    </field>
+                </page>
+            </xpath>
+        </field>
+    </record>
+
+</odoo>

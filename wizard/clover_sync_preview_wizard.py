@@ -283,6 +283,15 @@ class CloverSyncPreviewSale(models.TransientModel):
     total_amount = fields.Float(digits=(12, 2), readonly=True)
     tip_amount = fields.Float(digits=(12, 2), readonly=True)
     line_count = fields.Integer(readonly=True)
+    line_summary = fields.Text(
+        string="Line Items (Preview)",
+        readonly=True,
+        help="Human-readable listing of the items on this Clover "
+             "order — one per line, with quantity and per-line "
+             "amount. Comes straight from Clover's lineItems "
+             "response; will land as clover.sale.line records on "
+             "commit.",
+    )
     sale_action = fields.Selection(
         [
             ("create", "Create new mirror row"),

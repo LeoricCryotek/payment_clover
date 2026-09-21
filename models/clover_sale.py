@@ -214,6 +214,46 @@ class CloverSaleLine(models.Model):
         help="Per-line total in the sale currency.",
     )
     note = fields.Char()
+    provider_id = fields.Many2one(
+        related="sale_id.provider_id",
+        store=True,
+        index=True,
+        help="Denormalized from sale_id so product_id compute stays "
+             "in sync with provider (needed for the clover.item "
+             "lookup domain).",
+    )
+    product_id = fields.Many2one(
+        "product.product",
+        string="Odoo Product",
+        compute="_compute_product_id",
+        store=True,
+        index=True,
+        help="Auto-resolved via clover_item_id → clover.item.product_id. "
+             "Set only when the Clover item has been linked to a "
+             "product (do the linking on Configuration → Clover "
+             "Items). Enables sales-by-product rollups on the "
+             "product form.",
+    )
+    date = fields.Datetime(
+        related="sale_id.date",
+        store=True,
+        index=True,
+        help="Denormalized from sale_id.date so per-product YTD "
+             "rollups can filter on line-level dates efficiently.",
+    )
+
+    @api.depends("clover_item_id", "provider_id")
+    def _compute_product_id(self):
+        Item = self.env["clover.item"].sudo()
+        for line in self:
+            if not line.clover_item_id or not line.provider_id:
+                line.product_id = False
+                continue
+            item = Item.search([
+                ("provider_id", "=", line.provider_id.id),
+                ("clover_item_id", "=", line.clover_item_id),
+            ], limit=1)
+            line.product_id = item.product_id.id if item else False
 
     def clover_item_ref(self):
         """Return the matching clover.item record for this line, if any."""
