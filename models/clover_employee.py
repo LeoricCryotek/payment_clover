@@ -62,14 +62,101 @@ class CloverEmployee(models.Model):
         string="Odoo Employee",
         ondelete="set null",
         help="hr.employee this Clover cashier maps to. Auto-linked "
-             "by the nightly sync when email / phone / name match; "
+             "by the nightly sync when email / prefix name match; "
              "set manually otherwise. Blank + not-flagged-Float + "
-             "not exclude_from_reports means tips fall into the "
-             "'unassigned' bucket on the tip report — a signal to "
-             "admins that this Clover account needs a decision.",
+             "not exclude_from_reports means the row is Pending "
+             "Mapping — visible in the Pending filter on the "
+             "Clover Employees list. Setting this field backfills "
+             "all historical clover.sale and clover.tip.entry rows "
+             "so past data attributes to the newly-mapped employee.",
+    )
+    mapping_status = fields.Selection(
+        [
+            ("mapped", "Mapped"),
+            ("pending", "Pending — Needs Manual Mapping"),
+            ("excluded", "Excluded (Float / Non-employee)"),
+        ],
+        string="Mapping Status",
+        compute="_compute_mapping_status",
+        store=True,
+        help="Auto-computed. Excluded when is_float or "
+             "exclude_from_reports is on. Mapped when employee_id "
+             "is set. Pending otherwise — appears in the default "
+             "'Pending Mapping' filter for admin review.",
     )
     active = fields.Boolean(default=True)
     last_synced = fields.Datetime(readonly=True)
+
+    @api.depends("employee_id", "is_float", "exclude_from_reports")
+    def _compute_mapping_status(self):
+        for rec in self:
+            if rec.is_float or rec.exclude_from_reports:
+                rec.mapping_status = "excluded"
+            elif rec.employee_id:
+                rec.mapping_status = "mapped"
+            else:
+                rec.mapping_status = "pending"
+
+    def write(self, vals):
+        """Backfill historical sales/tips when employee_id changes.
+
+        When an admin maps a previously-pending clover.employee to
+        an hr.employee (or re-maps an existing link to a different
+        employee), retroactively update every clover.sale and
+        clover.tip.entry that references this clover.employee so
+        historical reports reflect the new mapping.
+
+        Only fires when employee_id is actually changing to a new
+        non-blank value.
+        """
+        emp_change = "employee_id" in vals
+        if emp_change:
+            # Snapshot old values before super() overwrites them.
+            snapshot = {r.id: r.employee_id.id for r in self}
+        result = super().write(vals)
+        if emp_change:
+            for r in self:
+                new_emp = r.employee_id
+                if not new_emp:
+                    continue
+                if snapshot.get(r.id) == new_emp.id:
+                    continue  # No change for this row.
+                r._clover_backfill_history(new_emp)
+        return result
+
+    def _clover_backfill_history(self, new_employee):
+        """Update every clover.sale + clover.tip.entry attributed
+        to this clover.employee so employee_id points at
+        new_employee. Recompute is_unclaimed on tips based on the
+        new department's tip-eligibility.
+        """
+        self.ensure_one()
+        Sale = self.env["clover.sale"].sudo()
+        Tip = self.env["clover.tip.entry"].sudo()
+
+        # Update clover.sale rows
+        sales = Sale.search([("clover_employee_id", "=", self.id)])
+        if sales:
+            sales.write({"employee_id": new_employee.id})
+
+        # Update clover.tip.entry rows AND recompute is_unclaimed
+        tips = Tip.search([("clover_employee_id", "=", self.id)])
+        dept = new_employee.department_id
+        should_be_unclaimed = bool(
+            dept and not dept.x_clover_tips_eligible
+        )
+        for t in tips:
+            new_vals = {"employee_id": new_employee.id}
+            if t.is_unclaimed != should_be_unclaimed:
+                new_vals["is_unclaimed"] = should_be_unclaimed
+            t.write(new_vals)
+
+        _logger.info(
+            "Clover: backfilled %d sales + %d tips from "
+            "clover.employee %s to hr.employee %s (%s)",
+            len(sales), len(tips), self.name,
+            new_employee.id, new_employee.name,
+        )
 
     _unique_clover_emp_per_provider = models.Constraint(
         "unique(provider_id, clover_employee_id)",

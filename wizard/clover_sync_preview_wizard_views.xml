@@ -92,39 +92,33 @@
                             <div class="alert alert-info mb-2" role="alert">
                                 <i class="fa fa-info-circle me-1"
                                    title="Info"/>
-                                <strong>You can edit these rows.</strong>
-                                Change the <b>Action</b> column or pick
-                                a different <b>Matched Employee</b> to
-                                override what the auto-matcher chose.
-                                The <b>Candidates</b> column suggests
-                                likely matches when there's more than
-                                one hr.employee with a similar name
-                                (e.g., "Samantha Gregory -
-                                Waitstaff" vs. "Samantha Gregory - Cook").
-                                Your picks here are what the commit
-                                uses — nothing re-runs the matcher.
+                                <strong>Click any row to edit.</strong>
+                                A dialog opens where you can change the
+                                <b>Action</b> and pick a
+                                <b>Matched Employee</b> from all your
+                                hr.employees (search by any part of
+                                their name, e.g. "Jon Longtin" to find
+                                "Jon Longtin - Bartender"). Your picks
+                                are what the commit uses — nothing
+                                re-runs the matcher.
                             </div>
                             <field name="employee_line_ids"
-                                   nolabel="1">
-                                <list editable="bottom"
+                                   nolabel="1"
+                                   context="{'form_view_ref': 'payment_clover.clover_sync_preview_employee_view_form'}">
+                                <list create="false" delete="false"
                                       decoration-warning="action == 'create'"
                                       decoration-muted="action in ('float','unchanged','skip')"
                                       decoration-info="action == 'link'">
-                                    <field name="name" readonly="1"/>
-                                    <field name="nickname" readonly="1"
-                                           optional="hide"/>
-                                    <field name="email" readonly="1"/>
-                                    <field name="role" readonly="1"/>
+                                    <field name="name"/>
+                                    <field name="nickname" optional="hide"/>
+                                    <field name="email"/>
+                                    <field name="role"/>
                                     <field name="action"/>
-                                    <field name="matched_employee_id"
-                                           domain="[('active','in',[True,False])]"
-                                           options="{'no_create': True}"
-                                           required="action == 'link'"/>
+                                    <field name="matched_employee_id"/>
                                     <field name="candidate_employee_ids"
                                            widget="many2many_tags"
-                                           readonly="1"
                                            optional="show"/>
-                                    <field name="match_reason" readonly="1"/>
+                                    <field name="match_reason"/>
                                 </list>
                             </field>
                         </page>
@@ -158,6 +152,80 @@
                 </sheet>
                 <footer>
                     <button string="Close"
+                            special="cancel"
+                            class="btn-secondary"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+
+    <!--
+        Row-edit dialog for a single employee preview line.
+
+        Opened when the admin clicks a row in the Employees tab list.
+        Lets them override the auto-matcher's decision: change the
+        Action to 'Link to existing hr.employee' and pick a specific
+        target from the full hr.employee dropdown, or Skip / mark as
+        Float — whatever fits the situation.
+    -->
+    <record id="clover_sync_preview_employee_view_form" model="ir.ui.view">
+        <field name="name">clover.sync.preview.employee.form</field>
+        <field name="model">clover.sync.preview.employee</field>
+        <field name="arch" type="xml">
+            <form string="Edit Employee Preview Row">
+                <sheet>
+                    <group>
+                        <group string="From Clover (read-only)">
+                            <field name="name" readonly="1"/>
+                            <field name="nickname" readonly="1"/>
+                            <field name="email" readonly="1"/>
+                            <field name="role" readonly="1"/>
+                            <field name="clover_employee_id"
+                                   readonly="1"/>
+                        </group>
+                        <group string="What Commit Will Do">
+                            <field name="action"/>
+                            <field name="matched_employee_id"
+                                   options="{'no_create': True}"
+                                   required="action == 'link'"
+                                   invisible="action != 'link'"
+                                   placeholder="Search any hr.employee — type a name…"/>
+                            <field name="candidate_employee_ids"
+                                   widget="many2many_tags"
+                                   readonly="1"
+                                   invisible="not candidate_employee_ids"/>
+                        </group>
+                    </group>
+                    <group string="Auto-Matcher's Reason">
+                        <field name="match_reason" nolabel="1"
+                               readonly="1"/>
+                    </group>
+                    <div class="alert alert-info mt-2" role="alert">
+                        <strong>Actions explained:</strong><br/>
+                        &#8226; <b>Link to existing hr.employee</b> —
+                        wire this Clover cashier to an Odoo employee
+                        you pick from the dropdown. Use this for
+                        suffixed names (e.g., Clover "Jon Longtin"
+                        → Odoo "Jon Longtin - Bartender").<br/>
+                        &#8226; <b>Auto-create hr.employee</b> —
+                        commit will silently create a new hr.employee
+                        in the Clover Import (Review) department.<br/>
+                        &#8226; <b>Already linked</b> — no change; the
+                        clover.employee mirror already points at the
+                        right hr.employee from a previous sync.<br/>
+                        &#8226; <b>Float / excluded</b> — mark as
+                        Clover Float profile so tips stay out of
+                        personal reports; no hr.employee link.<br/>
+                        &#8226; <b>Skip this employee</b> — do nothing
+                        at all. Useful for archived Clover cashiers
+                        who no longer work here.
+                    </div>
+                </sheet>
+                <footer>
+                    <button string="Save"
+                            special="save"
+                            class="btn-primary"/>
+                    <button string="Cancel"
                             special="cancel"
                             class="btn-secondary"/>
                 </footer>

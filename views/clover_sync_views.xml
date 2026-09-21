@@ -8,12 +8,22 @@
         <field name="name">clover.employee.list</field>
         <field name="model">clover.employee</field>
         <field name="arch" type="xml">
-            <list string="Clover Employees" editable="bottom">
+            <list string="Clover Employees" editable="bottom"
+                  decoration-warning="mapping_status == 'pending'"
+                  decoration-muted="mapping_status == 'excluded'"
+                  decoration-info="mapping_status == 'mapped'">
+                <field name="mapping_status" readonly="1"
+                       widget="badge"
+                       decoration-warning="mapping_status == 'pending'"
+                       decoration-muted="mapping_status == 'excluded'"
+                       decoration-info="mapping_status == 'mapped'"/>
                 <field name="name" readonly="1"/>
                 <field name="nickname" readonly="1"/>
                 <field name="email" readonly="1"/>
                 <field name="role" readonly="1"/>
-                <field name="employee_id"/>
+                <field name="employee_id"
+                       options="{'no_create': True}"
+                       placeholder="Type a name to link…"/>
                 <field name="is_float" readonly="1"/>
                 <field name="exclude_from_reports"/>
                 <field name="last_synced" readonly="1"/>
@@ -35,9 +45,17 @@
                             <field name="role"/>
                         </group>
                         <group>
+                            <field name="mapping_status"
+                                   widget="badge"
+                                   readonly="1"
+                                   decoration-warning="mapping_status == 'pending'"
+                                   decoration-muted="mapping_status == 'excluded'"
+                                   decoration-info="mapping_status == 'mapped'"/>
                             <field name="provider_id"/>
                             <field name="clover_employee_id" readonly="1"/>
-                            <field name="employee_id"/>
+                            <field name="employee_id"
+                                   options="{'no_create': True}"
+                                   placeholder="Search hr.employees…"/>
                             <field name="is_float" readonly="1"/>
                             <field name="exclude_from_reports"/>
                             <field name="last_synced" readonly="1"/>
@@ -48,10 +66,78 @@
         </field>
     </record>
 
+    <record id="clover_employee_view_search" model="ir.ui.view">
+        <field name="name">clover.employee.search</field>
+        <field name="model">clover.employee</field>
+        <field name="arch" type="xml">
+            <search>
+                <field name="name"/>
+                <field name="email"/>
+                <field name="employee_id"/>
+                <field name="clover_employee_id"/>
+                <filter name="pending" string="Pending Mapping"
+                        domain="[('mapping_status', '=', 'pending')]"/>
+                <filter name="mapped" string="Mapped"
+                        domain="[('mapping_status', '=', 'mapped')]"/>
+                <filter name="excluded" string="Excluded"
+                        domain="[('mapping_status', '=', 'excluded')]"/>
+                <separator/>
+                <filter name="is_float" string="Float / Non-employee"
+                        domain="[('is_float', '=', True)]"/>
+                <group>
+                    <filter name="grp_status" string="Mapping Status"
+                            context="{'group_by': 'mapping_status'}"/>
+                    <filter name="grp_employee" string="Odoo Employee"
+                            context="{'group_by': 'employee_id'}"/>
+                </group>
+            </search>
+        </field>
+    </record>
+
     <record id="clover_employee_action" model="ir.actions.act_window">
         <field name="name">Clover Employees</field>
         <field name="res_model">clover.employee</field>
         <field name="view_mode">list,form</field>
+        <field name="context">{}</field>
+        <field name="search_view_id" ref="clover_employee_view_search"/>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">
+                No Clover employees synced yet.
+            </p>
+            <p>
+                Run Sync Now (or wait for the nightly cron) to pull
+                your Clover cashier roster into Odoo. Rows land here
+                as either Mapped (auto-linked to an existing
+                hr.employee), Excluded (Float / non-employee), or
+                Pending — which means an admin needs to pick which
+                hr.employee this Clover cashier corresponds to.
+            </p>
+        </field>
+    </record>
+
+    <!-- Dedicated Pending Mapping action so it can have its own
+         menu item that opens the filtered view straight away. -->
+    <record id="clover_employee_pending_action"
+            model="ir.actions.act_window">
+        <field name="name">Pending Employee Mapping</field>
+        <field name="res_model">clover.employee</field>
+        <field name="view_mode">list,form</field>
+        <field name="context">{'search_default_pending': 1}</field>
+        <field name="search_view_id" ref="clover_employee_view_search"/>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">
+                Everything is mapped — nothing pending!
+            </p>
+            <p>
+                When a new Clover cashier appears in a sync and the
+                auto-matcher can't safely link them to one of your
+                hr.employees, they land here. Click any row, pick the
+                right hr.employee from the "Odoo Employee" dropdown,
+                and Odoo will retroactively re-attribute every
+                historical Clover sale and tip for that cashier to
+                the newly mapped employee.
+            </p>
+        </field>
     </record>
 
     <!-- ================================================================ -->
@@ -309,6 +395,13 @@
               parent="menu_clover_sales_root"
               action="clover_employee_action"
               sequence="30"
+              groups="payment_clover.group_clover_admin"/>
+
+    <menuitem id="menu_clover_employees_pending"
+              name="Pending Employee Mapping"
+              parent="menu_clover_sales_root"
+              action="clover_employee_pending_action"
+              sequence="35"
               groups="payment_clover.group_clover_admin"/>
 
     <menuitem id="menu_clover_sync_now"

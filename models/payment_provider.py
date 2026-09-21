@@ -79,6 +79,10 @@ class PaymentProvider(models.Model):
         "clover.item", "provider_id",
         string="Clover Items",
     )
+    clover_employee_ids = fields.One2many(
+        "clover.employee", "provider_id",
+        string="Clover Employees",
+    )
 
     # -- Sync engine settings (all default OFF; opt-in per feature) ------
     clover_sync_sales = fields.Boolean(
@@ -131,6 +135,31 @@ class PaymentProvider(models.Model):
              "match a contact in Odoo. When OFF (default), unmatched "
              "customers are stored as name/email/phone strings on the "
              "clover.sale record only — no res.partner side-effects.",
+    )
+    clover_new_employee_behavior = fields.Selection(
+        [
+            ("pending",
+             "Leave Pending (recommended) — admin maps manually"),
+            ("auto_create",
+             "Auto-create hr.employee (old behavior)"),
+        ],
+        string="New Clover Employee Behavior",
+        default="pending",
+        help="What the nightly sync does when it finds a Clover "
+             "cashier with no matching hr.employee (by email or "
+             "prefix name):\n\n"
+             "• Pending (default) — creates the clover.employee "
+             "mirror row with mapping_status='pending' and NO "
+             "hr.employee link. Admin reviews via Clover → Sales → "
+             "Pending Employee Mapping and picks the right "
+             "hr.employee (which may be a role-suffixed one like "
+             "'Jon Longtin - Bartender'). Historical sales/tips are "
+             "backfilled automatically when the mapping is saved.\n"
+             "• Auto-create — silently creates a new hr.employee in "
+             "the Clover Import (Review) department. Faster but "
+             "risks duplicates when a Clover cashier is actually "
+             "the same person as an existing hr.employee under a "
+             "suffixed name.",
     )
 
     # -- Auto-sync schedule (drives the ir.cron nextcall/interval) ------
@@ -657,6 +686,46 @@ class PaymentProvider(models.Model):
                 return
             offset += page_size
 
+    def action_sync_clover_employees(self):
+        """Manual button — pull the Clover employee roster into Odoo
+        so the Configuration → Clover Employees tab is populated
+        for admin review + mapping.
+
+        Runs the employee-sync path only (not sales / tips / items)
+        under the silent context, respects the new-employee behavior
+        setting: if it's 'pending', new cashiers land as unmapped
+        clover.employee rows with no hr.employee auto-created.
+        """
+        self.ensure_one()
+        silent = self._clover_silent_context()
+        provider_s = self.with_context(**silent)
+        try:
+            stats = provider_s._clover_sync_employees()
+        except Exception as e:  # noqa: BLE001
+            _logger.exception(
+                "Clover: manual employee sync failed: %s", e)
+            raise
+        return {
+            "type": "ir.actions.client",
+            "tag": "display_notification",
+            "params": {
+                "title": _("Clover Employees Synced"),
+                "message": _(
+                    "%(linked)s linked to existing hr.employees. "
+                    "%(new)s new mirror rows. "
+                    "%(pending)s pending mapping "
+                    "(review the Clover Employees tab). "
+                    "%(hr)s hr.employees auto-created.",
+                    linked=stats.get("linked", 0),
+                    new=stats.get("new", 0),
+                    pending=stats.get("pending", 0),
+                    hr=stats.get("hr_created", 0),
+                ),
+                "type": "success",
+                "sticky": False,
+            },
+        }
+
     def action_clover_open_preview(self):
         """Open the Preview / Dry Run wizard for THIS provider.
 
@@ -1021,15 +1090,25 @@ class PaymentProvider(models.Model):
                 if match:
                     employee_id = match.id
                     stats["linked"] += 1
+                elif self.clover_new_employee_behavior == "pending":
+                    # Default (safe) behavior: don't create anything
+                    # on the HR side. Leave the clover.employee
+                    # mirror pending; an admin promotes it via
+                    # Clover → Sales → Pending Employee Mapping.
+                    # Historical sales/tips will backfill onto the
+                    # chosen hr.employee when the admin sets
+                    # employee_id.
+                    stats.setdefault("pending", 0)
+                    stats["pending"] += 1
+                    _logger.info(
+                        "Clover: %s (%s) landed as PENDING mapping "
+                        "— admin must pick an hr.employee.",
+                        name, clover_id,
+                    )
                 else:
-                    # No hr.employee for this Clover cashier —
-                    # auto-create one silently. Every Clover cashier
-                    # must exist in Odoo so their sales/tips can be
-                    # attributed. Marked x_clover_auto_created=True
-                    # so admins can review and finish setup, and
-                    # routed to the "Clover Import (Review)"
-                    # holding-pen department so it's easy to find
-                    # them among a large employee roster.
+                    # Legacy: silently auto-create in Clover Import
+                    # (Review) department. Kept for merchants who
+                    # prefer bulk-onboarding speed over pre-review.
                     dept = self.env.ref(
                         "payment_clover.hr_department_clover_import",
                         raise_if_not_found=False,
