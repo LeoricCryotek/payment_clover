@@ -66,10 +66,6 @@ class ProductTemplate(models.Model):
                 ("product_id", "in", variant_ids),
             ])
 
-    @api.depends("x_clover_sale_line_ids",
-                 "x_clover_sale_line_ids.unit_qty",
-                 "x_clover_sale_line_ids.amount",
-                 "x_clover_sale_line_ids.date")
     def _compute_x_clover_stats(self):
         ytd_start = fields.Datetime.now().replace(
             month=1, day=1, hour=0, minute=0, second=0, microsecond=0)

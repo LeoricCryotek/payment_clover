@@ -248,11 +248,10 @@
                 <separator/>
                 <!-- Date-range widget: auto-generates Today/This
                      Week/This Month/etc. sub-filters, JS-evaluable
-                     unlike raw context_today() calls. -->
-                <filter name="filter_date"
-                        string="Date"
-                        date="date"
-                        default_period="this_month"/>
+                     unlike raw context_today() calls. Odoo 19
+                     removed the default_period attribute; users
+                     pick the period from the filter's dropdown. -->
+                <filter name="filter_date" string="Date" date="date"/>
                 <group>
                     <filter name="grp_employee" string="Employee"
                             context="{'group_by': 'employee_id'}"/>
@@ -332,10 +331,7 @@
                 <separator/>
                 <!-- Date-range widget replaces raw context_today()
                      domains (JS-safe in Odoo 19). -->
-                <filter name="filter_date"
-                        string="Date"
-                        date="date"
-                        default_period="this_month"/>
+                <filter name="filter_date" string="Date" date="date"/>
                 <group>
                     <filter name="grp_employee" string="Employee"
                             context="{'group_by': 'employee_id'}"/>
