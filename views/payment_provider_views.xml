@@ -64,6 +64,31 @@
                     <field name="clover_last_employee_sync_at" readonly="1"
                            invisible="not clover_sync_sales"/>
                 </group>
+                <group invisible="code != 'clover' or not clover_sync_sales"
+                       string="Auto-Sync Schedule">
+                    <field name="clover_sync_frequency"/>
+                    <field name="clover_sync_interval_hours"
+                           invisible="clover_sync_frequency != 'hourly'"
+                           required="clover_sync_frequency == 'hourly'"/>
+                    <field name="clover_sync_hour"
+                           invisible="clover_sync_frequency != 'daily'"
+                           required="clover_sync_frequency == 'daily'"/>
+                    <field name="clover_next_scheduled_sync_at"
+                           readonly="1"
+                           invisible="clover_sync_frequency == 'manual'"/>
+                    <button name="action_clover_apply_schedule"
+                            type="object"
+                            string="Apply Schedule Now"
+                            class="btn-link"
+                            icon="fa-clock-o"
+                            colspan="2"
+                            help="Re-writes the underlying scheduled
+                                  action from these settings. Normally
+                                  saved automatically when you change
+                                  these fields — click this if the
+                                  'Next Auto-Sync At' shown above
+                                  looks wrong."/>
+                </group>
             </group>
 
             <!-- Sync Items button in the header -->

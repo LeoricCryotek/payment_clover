@@ -133,6 +133,44 @@ class PaymentProvider(models.Model):
              "clover.sale record only — no res.partner side-effects.",
     )
 
+    # -- Auto-sync schedule (drives the ir.cron nextcall/interval) ------
+    clover_sync_frequency = fields.Selection(
+        [
+            ("manual", "Manual only (no auto-sync)"),
+            ("hourly", "Every N hours"),
+            ("daily", "Daily at fixed hour"),
+        ],
+        string="Auto-Sync Frequency",
+        default="daily",
+        help="Controls the underlying ir.cron. 'Manual only' disables "
+             "the cron entirely — Sync Now button still works. "
+             "'Every N hours' runs the sync at a fixed interval "
+             "starting from save time. 'Daily at fixed hour' runs "
+             "once per day at the hour you pick (server timezone). "
+             "Applied to the cron immediately on save.",
+    )
+    clover_sync_interval_hours = fields.Integer(
+        string="Every N Hours",
+        default=4,
+        help="For 'Every N hours' frequency. Range 1–24. Server-side "
+             "runs once per interval; the first run is N hours after "
+             "you save.",
+    )
+    clover_sync_hour = fields.Integer(
+        string="Sync at Hour (0–23)",
+        default=2,
+        help="For 'Daily' frequency. 0 = midnight, 2 = 2 AM, 14 = "
+             "2 PM. Uses the Odoo server's local timezone (check "
+             "with your admin if you're not sure what that is).",
+    )
+    clover_next_scheduled_sync_at = fields.Datetime(
+        string="Next Auto-Sync At",
+        compute="_compute_clover_next_scheduled_sync_at",
+        help="When the nightly cron will next run. Recomputed live "
+             "from the ir.cron record — if this shows a wrong time, "
+             "click 'Apply Schedule Now' to re-write the cron.",
+    )
+
     # ------------------------------------------------------------------
     # Constraints — only enforce credentials when fully enabled
     # ------------------------------------------------------------------
@@ -325,6 +363,38 @@ class PaymentProvider(models.Model):
         }
         _logger.info("Clover platform request: %s %s", method, url)
         resp = requests.request(method, url, headers=headers, timeout=30)
+        # Turn Clover auth failures into a helpful UserError instead
+        # of a raw HTTPError traceback. 401 / 403 are almost always
+        # a wrong or missing Platform REST API Token, or a token
+        # missing the READ scope for the resource being requested.
+        if resp.status_code in (401, 403):
+            using_ecom_fallback = (
+                not self.sudo().clover_platform_api_key
+                and bool(self.sudo().clover_api_key)
+            )
+            hint = (
+                "The Ecommerce Private Key is being used as a "
+                "fallback because no Platform REST API Token is "
+                "set. api.clover.com requires a Platform token — "
+                "add one in the Clover Merchant Dashboard "
+                "(Setup → API Tokens) with READ scope on "
+                "Employees, Orders, Payments, Merchant, Customers, "
+                "and Inventory, then paste it into the "
+                "'Platform REST API Token' field."
+            ) if using_ecom_fallback else (
+                "The Platform REST API Token is set, but Clover "
+                "rejected it for this endpoint. Verify the token "
+                "has READ scope on the resource being fetched "
+                "(Employees / Orders / Payments / Customers / "
+                "Inventory), and that it is a PRODUCTION token if "
+                "the provider is in Enabled state (sandbox tokens "
+                "only work in Test Mode)."
+            )
+            raise ValidationError(_(
+                "Clover Platform API rejected the request "
+                "(HTTP %(code)s) for %(url)s.\n\n%(hint)s",
+                code=resp.status_code, url=url, hint=hint,
+            ))
         resp.raise_for_status()
         return resp.json()
 
@@ -701,6 +771,129 @@ class PaymentProvider(models.Model):
                         "Clover: item cost sync failed for provider %s: %s",
                         provider.id, e)
         return totals
+
+    # ------------------------------------------------------------------
+    # Schedule ↔ cron reconciler
+    # ------------------------------------------------------------------
+
+    _CLOVER_CRON_XMLID = "payment_clover.ir_cron_clover_nightly_sync"
+
+    def _clover_get_cron(self):
+        return self.env.ref(self._CLOVER_CRON_XMLID,
+                            raise_if_not_found=False)
+
+    def _clover_apply_cron_schedule(self):
+        """Rewrite the ir.cron based on THIS provider's schedule fields.
+
+        When multiple Clover providers exist and Sync Clover Sales is
+        on for more than one, the schedule of the FIRST enabled
+        provider wins (typically there's only one). If no provider
+        has sync enabled, the cron is deactivated.
+
+        Called from create() and write() when any schedule field or
+        clover_sync_sales changes, and from the Apply Schedule Now
+        button.
+        """
+        cron = self._clover_get_cron()
+        if not cron:
+            _logger.warning(
+                "Clover: ir.cron %s not found; schedule not applied.",
+                self._CLOVER_CRON_XMLID)
+            return
+        cron = cron.sudo()
+
+        # Find eligible providers (sync enabled, non-manual).
+        eligible = self.env["payment.provider"].sudo().search([
+            ("code", "=", "clover"),
+            ("clover_sync_sales", "=", True),
+            ("clover_sync_frequency", "!=", "manual"),
+        ], order="id", limit=1)
+
+        from datetime import timedelta
+        if not eligible:
+            cron.active = False
+            return
+        prov = eligible
+
+        cron.active = True
+        now = fields.Datetime.now()
+        if prov.clover_sync_frequency == "hourly":
+            n = max(1, min(24, prov.clover_sync_interval_hours or 4))
+            cron.interval_number = n
+            cron.interval_type = "hours"
+            cron.nextcall = now + timedelta(hours=n)
+        elif prov.clover_sync_frequency == "daily":
+            h = max(0, min(23, prov.clover_sync_hour or 2))
+            target = now.replace(
+                hour=h, minute=0, second=0, microsecond=0)
+            if target <= now:
+                target = target + timedelta(days=1)
+            cron.interval_number = 1
+            cron.interval_type = "days"
+            cron.nextcall = target
+        _logger.info(
+            "Clover: cron rescheduled — frequency=%s, next=%s",
+            prov.clover_sync_frequency, cron.nextcall,
+        )
+
+    def action_clover_apply_schedule(self):
+        """Manual button — re-write the cron from the current settings."""
+        self.ensure_one()
+        self._clover_apply_cron_schedule()
+        cron = self._clover_get_cron()
+        next_txt = cron.nextcall if cron else "n/a"
+        return {
+            "type": "ir.actions.client",
+            "tag": "display_notification",
+            "params": {
+                "title": _("Clover Sync Schedule Applied"),
+                "message": _(
+                    "Next auto-sync will run at %s. Cron is "
+                    "%s.",
+                    next_txt,
+                    _("active") if cron and cron.active
+                    else _("disabled"),
+                ),
+                "type": "success",
+            },
+        }
+
+    @api.depends("clover_sync_frequency", "clover_sync_interval_hours",
+                 "clover_sync_hour", "clover_sync_sales")
+    def _compute_clover_next_scheduled_sync_at(self):
+        cron = self._clover_get_cron()
+        for p in self:
+            if p.code != "clover":
+                p.clover_next_scheduled_sync_at = False
+                continue
+            if not cron or not cron.active:
+                p.clover_next_scheduled_sync_at = False
+                continue
+            p.clover_next_scheduled_sync_at = cron.nextcall
+
+    @api.model_create_multi
+    def create(self, vals_list):
+        records = super().create(vals_list)
+        clover_records = records.filtered(lambda r: r.code == "clover")
+        if clover_records:
+            # Any one of them will re-select the first eligible provider,
+            # so calling on the first is enough.
+            clover_records[0]._clover_apply_cron_schedule()
+        return records
+
+    def write(self, vals):
+        result = super().write(vals)
+        schedule_fields = {
+            "clover_sync_frequency", "clover_sync_interval_hours",
+            "clover_sync_hour", "clover_sync_sales", "code",
+        }
+        if schedule_fields & set(vals.keys()):
+            clover_records = self.filtered(lambda r: r.code == "clover")
+            if clover_records:
+                clover_records[0]._clover_apply_cron_schedule()
+        return result
+
+    # ------------------------------------------------------------------
 
     @api.model
     def _clover_cron_run_nightly_sync(self):
