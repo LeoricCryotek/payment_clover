@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 {
     "name": "Payment Provider: Clover",
-    "version": "19.0.4.5",
+    "version": "19.0.4.6",
     "category": "Accounting/Payment Providers",
     "summary": "Accept payments via Clover (charges, refunds, auth/capture).",
     "description": """
@@ -106,6 +106,10 @@ levels visible on the user form:
         "web.assets_backend": [
             "payment_clover/static/src/js/payment_terminal.js",
             "payment_clover/static/src/xml/payment_terminal.xml",
+            # 19.0.4.6: patches the graph view's Chart.js config so
+            # axis tick labels + legend + axis titles render in a
+            # dark body colour instead of Odoo's default pale grey.
+            "payment_clover/static/src/js/graph_dark_ticks.js",
         ],
     },
     "post_init_hook": "post_init_hook",
