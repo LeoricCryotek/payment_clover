@@ -89,18 +89,42 @@
                         <!-- Employees tab                 -->
                         <!-- ============================= -->
                         <page string="Employees" name="employees">
-                            <field name="employee_line_ids" readonly="1"
+                            <div class="alert alert-info mb-2" role="alert">
+                                <i class="fa fa-info-circle me-1"
+                                   title="Info"/>
+                                <strong>You can edit these rows.</strong>
+                                Change the <b>Action</b> column or pick
+                                a different <b>Matched Employee</b> to
+                                override what the auto-matcher chose.
+                                The <b>Candidates</b> column suggests
+                                likely matches when there's more than
+                                one hr.employee with a similar name
+                                (e.g., "Samantha Gregory -
+                                Waitstaff" vs. "Samantha Gregory - Cook").
+                                Your picks here are what the commit
+                                uses — nothing re-runs the matcher.
+                            </div>
+                            <field name="employee_line_ids"
                                    nolabel="1">
-                                <list decoration-warning="action == 'create'"
-                                      decoration-muted="action == 'float' or action == 'unchanged'"
+                                <list editable="bottom"
+                                      decoration-warning="action == 'create'"
+                                      decoration-muted="action in ('float','unchanged','skip')"
                                       decoration-info="action == 'link'">
-                                    <field name="name"/>
-                                    <field name="nickname"/>
-                                    <field name="email"/>
-                                    <field name="role"/>
+                                    <field name="name" readonly="1"/>
+                                    <field name="nickname" readonly="1"
+                                           optional="hide"/>
+                                    <field name="email" readonly="1"/>
+                                    <field name="role" readonly="1"/>
                                     <field name="action"/>
-                                    <field name="matched_employee_id"/>
-                                    <field name="match_reason"/>
+                                    <field name="matched_employee_id"
+                                           domain="[('active','in',[True,False])]"
+                                           options="{'no_create': True}"
+                                           required="action == 'link'"/>
+                                    <field name="candidate_employee_ids"
+                                           widget="many2many_tags"
+                                           readonly="1"
+                                           optional="show"/>
+                                    <field name="match_reason" readonly="1"/>
                                 </list>
                             </field>
                         </page>

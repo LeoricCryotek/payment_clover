@@ -992,8 +992,10 @@ class PaymentProvider(models.Model):
 
             employee_id = existing.employee_id.id if existing else False
             if not employee_id and not is_float:
-                # Try to match an existing hr.employee — email is
-                # the strongest signal, exact name is a fallback.
+                # Priority: work_email → exact name → prefix name.
+                # Prefix only auto-links when exactly ONE candidate
+                # matches "Clover Name - Suffix"; multiple candidates
+                # fall through to auto-create so we never guess.
                 match = HrEmp
                 if email:
                     match = HrEmp.search([
@@ -1003,6 +1005,19 @@ class PaymentProvider(models.Model):
                     match = HrEmp.search([
                         ("name", "=ilike", name),
                     ], limit=1)
+                if not match and name:
+                    escaped = name.replace("\\", "\\\\").replace(
+                        "%", "\\%").replace("_", "\\_")
+                    prefix_matches = HrEmp.search([
+                        ("name", "ilike", f"{escaped} - %"),
+                    ], limit=5)
+                    if len(prefix_matches) == 1:
+                        match = prefix_matches
+                        _logger.info(
+                            "Clover sync: prefix-matched %s to "
+                            "%s (same person, role suffix)",
+                            name, match.name,
+                        )
                 if match:
                     employee_id = match.id
                     stats["linked"] += 1
@@ -1277,6 +1292,109 @@ class PaymentProvider(models.Model):
         return stats
 
     # ------------------------------------------------------------------
+    # Apply admin-reviewed employee decisions from the preview wizard
+    # ------------------------------------------------------------------
+
+    def _clover_apply_employee_decisions(self, decision_lines):
+        """Apply the admin's manual employee decisions to the DB.
+
+        Called from the Preview wizard's Commit button. Each decision
+        line carries the admin's chosen action (link / create /
+        unchanged / float / skip) and — for 'link' — the specific
+        hr.employee to point at. This method writes the clover.employee
+        mirrors and creates hr.employees as instructed, using the
+        silent context so no emails fire.
+
+        Returns a stats dict: linked / new / hr_created / skipped.
+        """
+        self.ensure_one()
+        silent = self._clover_silent_context()
+        HrEmp = self.env["hr.employee"].sudo().with_context(**silent)
+        CloverEmp = self.env["clover.employee"].sudo().with_context(**silent)
+
+        dept = self.env.ref(
+            "payment_clover.hr_department_clover_import",
+            raise_if_not_found=False,
+        )
+
+        stats = {"linked": 0, "new": 0, "hr_created": 0, "skipped": 0}
+        for line in decision_lines:
+            clover_id = line.clover_employee_id
+            if not clover_id:
+                continue
+            action = line.action or "skip"
+
+            if action == "skip":
+                stats["skipped"] += 1
+                continue
+
+            existing = CloverEmp.with_context(
+                active_test=False
+            ).search([
+                ("provider_id", "=", self.id),
+                ("clover_employee_id", "=", clover_id),
+            ], limit=1)
+
+            # Determine the hr.employee to link to, based on action.
+            emp_id = False
+            is_float = (action == "float")
+            if action == "link":
+                emp_id = line.matched_employee_id.id
+                stats["linked"] += 1
+            elif action == "create":
+                new_emp = HrEmp.create({
+                    "name": line.name,
+                    "work_email": line.email or False,
+                    "x_clover_auto_created": True,
+                    "department_id": dept.id if dept else False,
+                })
+                emp_id = new_emp.id
+                stats["hr_created"] += 1
+                _logger.info(
+                    "Clover preview commit: auto-created "
+                    "hr.employee %s (%s) for Clover cashier %s "
+                    "in dept %s",
+                    new_emp.id, line.name, clover_id,
+                    dept.name if dept else "(none)",
+                )
+            elif action == "unchanged":
+                # Just refresh the mirror row; keep the existing link.
+                emp_id = existing.employee_id.id if existing else False
+            # (action == 'float' leaves emp_id blank)
+
+            vals = {
+                "name": line.name,
+                "nickname": line.nickname or "",
+                "email": line.email or False,
+                "role": line.role or "",
+                "is_float": is_float,
+                "employee_id": emp_id,
+                "last_synced": fields.Datetime.now(),
+            }
+            if existing:
+                existing.write(vals)
+                if is_float and not existing.exclude_from_reports:
+                    existing.exclude_from_reports = True
+            else:
+                vals.update({
+                    "provider_id": self.id,
+                    "clover_employee_id": clover_id,
+                    "exclude_from_reports": is_float,
+                })
+                CloverEmp.create(vals)
+                stats["new"] += 1
+
+        self.clover_last_employee_sync_at = fields.Datetime.now()
+        _logger.info(
+            "Clover preview commit: applied %s employee decisions "
+            "(%s linked, %s hr.employees created, %s new mirrors, "
+            "%s skipped)",
+            len(decision_lines), stats["linked"], stats["hr_created"],
+            stats["new"], stats["skipped"],
+        )
+        return stats
+
+    # ------------------------------------------------------------------
     # Dry-run preview (no writes)
     # ------------------------------------------------------------------
 
@@ -1355,9 +1473,17 @@ class PaymentProvider(models.Model):
                 emp_decisions.append(decision)
                 continue
 
-            # Try to match — same logic as _clover_sync_employees.
+            # Match priority — strongest signal first:
+            #   1. work_email exact
+            #   2. name exact
+            #   3. name prefix ('Samantha Gregory' matches
+            #      'Samantha Gregory - Waitstaff')
+            # When step 3 finds MULTIPLE candidates, the row lands
+            # as 'create' with all candidates listed in the reason
+            # so the admin can pick one manually in the preview.
             match = HrEmp.browse()
             reason = ""
+            candidate_ids = []
             if email:
                 match = HrEmp.search([
                     ("work_email", "=ilike", email),
@@ -1370,21 +1496,49 @@ class PaymentProvider(models.Model):
                 ], limit=1)
                 if match:
                     reason = f"Matched by exact name = {name}"
+            if not match and name:
+                # Prefix match: "Name" against "Name - Suffix".
+                # Escape LIKE special chars in the name.
+                escaped = name.replace("\\", "\\\\").replace(
+                    "%", "\\%").replace("_", "\\_")
+                prefix_matches = HrEmp.search([
+                    ("name", "ilike", f"{escaped} - %"),
+                ], limit=5)
+                if len(prefix_matches) == 1:
+                    match = prefix_matches
+                    reason = (
+                        f"Prefix-matched to \"{match.name}\" "
+                        f"(same person, role suffix)"
+                    )
+                elif len(prefix_matches) > 1:
+                    # Multiple candidates — flag for manual pick.
+                    candidate_ids = prefix_matches.ids
+                    names = ", ".join(
+                        f'"{n}"'
+                        for n in prefix_matches.mapped("name")[:5])
+                    reason = (
+                        f"Multiple hr.employees start with "
+                        f"\"{name}\": {names} — please pick one "
+                        f"in this row (or leave 'Auto-create' to "
+                        f"add another record)"
+                    )
 
             if match:
                 decision.update({
                     "action": "link",
                     "matched_employee_id": match.id,
                     "match_reason": reason,
+                    "candidate_employee_ids": [(6, 0, candidate_ids)],
                 })
             else:
                 decision.update({
                     "action": "create",
                     "matched_employee_id": False,
-                    "match_reason": (
+                    "match_reason": reason or (
                         "No hr.employee matched by email or name — "
                         "would auto-create silently"
                     ),
+                    "candidate_employee_ids": [(6, 0, candidate_ids)],
                 })
             emp_decisions.append(decision)
 

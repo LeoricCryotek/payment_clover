@@ -14,6 +14,7 @@ they land in the database.
 import logging
 
 from odoo import _, api, fields, models
+from odoo.exceptions import ValidationError
 
 _logger = logging.getLogger(__name__)
 
@@ -137,16 +138,54 @@ class CloverSyncPreviewWizard(models.TransientModel):
         }
 
     def action_commit_preview(self):
-        """Run the REAL sync now.
+        """Commit using the admin's reviewed decisions.
 
-        Uses the same pipeline the nightly cron uses. Not bounded to
-        the preview sample — pulls everything since the last sync
-        (or all, on first run). We warn about this on the button.
+        Applies the employee decisions from THIS wizard's lines
+        (respecting any manual overrides — 'Link' with a specific
+        matched_employee_id, action changes to 'Skip', etc.), then
+        runs the sales sync. The sales sync uses the clover.employee
+        mirrors we just wrote, so cashier attribution follows the
+        admin's decisions automatically.
         """
         self.ensure_one()
         if not self.provider_id:
             return False
-        stats = self.provider_id._clover_run_full_sync()
+
+        # 1. Sanity check — every 'link' row needs a target.
+        bad_links = self.employee_line_ids.filtered(
+            lambda l: l.action == "link" and not l.matched_employee_id)
+        if bad_links:
+            names = ", ".join(bad_links.mapped("name")[:5])
+            raise ValidationError(_(
+                "These rows are set to 'Link to existing hr.employee' "
+                "but no target is selected: %s. Pick an employee for "
+                "each (or change the action) before committing.",
+                names,
+            ))
+
+        emp_stats = self.provider_id._clover_apply_employee_decisions(
+            self.employee_line_ids)
+
+        # 2. Now run sales + tips + item cost sync. These pipelines
+        #    look up the clover.employee mirrors we just wrote to
+        #    attribute cashiers and to route tips through the
+        #    department-eligibility check.
+        silent = self.provider_id._clover_silent_context()
+        provider_s = self.provider_id.with_context(**silent)
+        try:
+            sales_stats = provider_s._clover_sync_sales()
+        except Exception as e:  # noqa: BLE001
+            _logger.exception(
+                "Clover: sales sync after preview commit failed: %s", e)
+            sales_stats = {"sales": 0, "tips": 0}
+        if self.provider_id.clover_sync_item_costs:
+            try:
+                provider_s._clover_sync_item_costs()
+            except Exception as e:  # noqa: BLE001
+                _logger.exception(
+                    "Clover: item cost sync after preview commit "
+                    "failed: %s", e)
+
         return {
             "type": "ir.actions.client",
             "tag": "display_notification",
@@ -154,13 +193,14 @@ class CloverSyncPreviewWizard(models.TransientModel):
                 "title": _("Clover Sync Complete"),
                 "message": _(
                     "Employees: %(el)s linked, %(en)s new mirror rows, "
-                    "%(hr)s hr.employees created. "
+                    "%(hr)s hr.employees created, %(sk)s skipped. "
                     "Sales: %(s)s orders, %(t)s tip entries.",
-                    el=stats.get("employees_linked", 0),
-                    en=stats.get("employees_new", 0),
-                    hr=stats.get("hr_created", 0),
-                    s=stats.get("sales", 0),
-                    t=stats.get("tips", 0),
+                    el=emp_stats.get("linked", 0),
+                    en=emp_stats.get("new", 0),
+                    hr=emp_stats.get("hr_created", 0),
+                    sk=emp_stats.get("skipped", 0),
+                    s=sales_stats.get("sales", 0),
+                    t=sales_stats.get("tips", 0),
                 ),
                 "type": "success",
                 "sticky": True,
@@ -189,20 +229,38 @@ class CloverSyncPreviewEmployee(models.TransientModel):
             ("create", "Auto-create hr.employee"),
             ("unchanged", "Already linked — no change"),
             ("float", "Float / excluded"),
+            ("skip", "Skip this employee"),
         ],
-        string="Preview Action",
-        readonly=True,
+        string="Action",
+        required=True,
+        default="create",
+        help="Editable. The default is what the auto-matcher chose "
+             "— override to link a Clover employee to a specific "
+             "hr.employee (e.g., one that has a role suffix like "
+             "'Samantha Gregory - Waitstaff'), or to skip this "
+             "employee entirely.",
     )
     matched_employee_id = fields.Many2one(
         "hr.employee",
         string="Matched Employee",
+        help="Editable. When Action = 'Link to existing hr.employee', "
+             "pick which one from your existing employees. Required "
+             "for the Link action.",
+    )
+    candidate_employee_ids = fields.Many2many(
+        "hr.employee",
+        string="Candidate Matches",
         readonly=True,
+        help="Existing hr.employees whose names look similar to this "
+             "Clover employee (typically 'Samantha Gregory - Waitstaff'-"
+             "style role suffixes). Shown as suggestions when the "
+             "auto-matcher can't safely pick one.",
     )
     match_reason = fields.Char(
         string="Match Reason",
         readonly=True,
-        help="How the sync would decide the match "
-             "(work_email, name, or blank for auto-create).",
+        help="Explains why the auto-matcher chose the default "
+             "action — read this before overriding.",
     )
 
 
