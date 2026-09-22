@@ -1,0 +1,265 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!--
+        ================================================================
+        Clover Leaderboards
+        ================================================================
+
+        "Top N of X" reports — Items, Employees, Customers — with
+        period switching (day / week / month / quarter / year) via
+        the standard Odoo <filter date="date"/> widget. That widget
+        exposes Today, This Week, This Month, This Quarter, This Year,
+        Last Week/Month/Quarter/Year, plus a custom-range picker,
+        without any client-side domain-eval risk.
+
+        Top-N logic: bar graphs are sorted DESC by the first measure,
+        so the tallest bars on the left ARE the top performers. Users
+        who want an exact top-10 can flip to pivot mode and sort by
+        the measure column (chevron on the header); pivot rows land
+        highest-to-lowest.
+
+        Nothing here is a new model — everything reuses the existing
+        clover.sale + clover.sale.line data, just re-projected.
+    -->
+
+    <!-- ================================================================ -->
+    <!-- Top Items — bar graph sorted DESC by revenue                     -->
+    <!-- ================================================================ -->
+    <record id="clover_top_items_view_graph" model="ir.ui.view">
+        <field name="name">clover.top.items.graph</field>
+        <field name="model">clover.sale.line</field>
+        <field name="arch" type="xml">
+            <graph string="Top Items by Revenue" type="bar"
+                   sample="1" order="DESC">
+                <field name="product_id"/>
+                <field name="amount" type="measure"/>
+                <field name="unit_qty" type="measure"/>
+                <field name="margin_amount" type="measure"/>
+            </graph>
+        </field>
+    </record>
+
+    <record id="clover_top_items_view_pivot" model="ir.ui.view">
+        <field name="name">clover.top.items.pivot</field>
+        <field name="model">clover.sale.line</field>
+        <field name="arch" type="xml">
+            <pivot string="Top Items" sample="1">
+                <field name="product_id" type="row"/>
+                <field name="unit_qty" type="measure"/>
+                <field name="amount" type="measure"/>
+                <field name="cost_amount" type="measure"/>
+                <field name="margin_amount" type="measure"/>
+            </pivot>
+        </field>
+    </record>
+
+    <record id="action_clover_top_items" model="ir.actions.act_window">
+        <field name="name">Top Items</field>
+        <field name="res_model">clover.sale.line</field>
+        <field name="view_mode">graph,pivot,list</field>
+        <field name="view_ids" eval="[
+            (5, 0, 0),
+            (0, 0, {'view_mode': 'graph', 'view_id': ref('clover_top_items_view_graph')}),
+            (0, 0, {'view_mode': 'pivot', 'view_id': ref('clover_top_items_view_pivot')}),
+            (0, 0, {'view_mode': 'list',  'view_id': ref('clover_sale_line_view_list')}),
+        ]"/>
+        <field name="search_view_id" ref="clover_sale_line_view_search"/>
+        <field name="context">{
+            'search_default_filter_date': 1,
+            'search_default_grp_product': 1,
+            'search_default_has_product': 1
+        }</field>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">
+                Top Items
+            </p>
+            <p>
+                Bars are sorted highest → lowest by revenue. Use the
+                Date filter chevron (top of the search bar) to switch
+                between Today, This Week, This Month, This Quarter,
+                This Year, or a custom range. Flip to Pivot mode for
+                the exact top-10 list — click the "Revenue" column
+                header to sort descending; the top rows are your
+                bestsellers for the selected period.
+            </p>
+            <p>
+                The "Linked to Product" filter is on by default so
+                lines whose Clover item isn't mapped to an Odoo
+                product yet don't clutter the ranking. Turn it off
+                to see every raw item Clover recorded.
+            </p>
+        </field>
+    </record>
+
+    <!-- ================================================================ -->
+    <!-- Top Employees — bar graph sorted DESC by revenue                 -->
+    <!-- ================================================================ -->
+    <record id="clover_top_employees_view_graph" model="ir.ui.view">
+        <field name="name">clover.top.employees.graph</field>
+        <field name="model">clover.sale</field>
+        <field name="arch" type="xml">
+            <graph string="Top Employees by Revenue" type="bar"
+                   sample="1" order="DESC">
+                <field name="employee_id"/>
+                <field name="total_amount" type="measure"/>
+                <field name="tip_amount" type="measure"/>
+                <field name="net_amount" type="measure"/>
+            </graph>
+        </field>
+    </record>
+
+    <record id="clover_top_employees_view_pivot" model="ir.ui.view">
+        <field name="name">clover.top.employees.pivot</field>
+        <field name="model">clover.sale</field>
+        <field name="arch" type="xml">
+            <pivot string="Top Employees" sample="1">
+                <field name="employee_id" type="row"/>
+                <field name="total_amount" type="measure"/>
+                <field name="tip_amount" type="measure"/>
+                <field name="cost_amount" type="measure"/>
+                <field name="net_amount" type="measure"/>
+            </pivot>
+        </field>
+    </record>
+
+    <record id="action_clover_top_employees" model="ir.actions.act_window">
+        <field name="name">Top Employees</field>
+        <field name="res_model">clover.sale</field>
+        <field name="view_mode">graph,pivot,list</field>
+        <field name="view_ids" eval="[
+            (5, 0, 0),
+            (0, 0, {'view_mode': 'graph', 'view_id': ref('clover_top_employees_view_graph')}),
+            (0, 0, {'view_mode': 'pivot', 'view_id': ref('clover_top_employees_view_pivot')}),
+            (0, 0, {'view_mode': 'list',  'view_id': ref('clover_sale_view_list')}),
+        ]"/>
+        <field name="search_view_id" ref="clover_sale_view_search"/>
+        <field name="context">{
+            'search_default_filter_date': 1,
+            'search_default_grp_employee': 1
+        }</field>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">
+                Top Employees
+            </p>
+            <p>
+                Bars are sorted highest → lowest by total revenue rung
+                up. Toggle Measures (top-left of graph) to also view
+                tips or net margin. Flip to Pivot mode for the exact
+                top-10 list with all three measures side-by-side; the
+                Date filter chevron switches period between Today,
+                Week, Month, Quarter, and Year.
+            </p>
+        </field>
+    </record>
+
+    <!-- ================================================================ -->
+    <!-- Top Customers — bar graph sorted DESC by revenue                 -->
+    <!-- ================================================================ -->
+    <record id="clover_top_customers_view_graph" model="ir.ui.view">
+        <field name="name">clover.top.customers.graph</field>
+        <field name="model">clover.sale</field>
+        <field name="arch" type="xml">
+            <graph string="Top Customers by Revenue" type="bar"
+                   sample="1" order="DESC">
+                <field name="customer_display_name"/>
+                <field name="total_amount" type="measure"/>
+                <field name="tip_amount" type="measure"/>
+            </graph>
+        </field>
+    </record>
+
+    <record id="clover_top_customers_view_pivot" model="ir.ui.view">
+        <field name="name">clover.top.customers.pivot</field>
+        <field name="model">clover.sale</field>
+        <field name="arch" type="xml">
+            <pivot string="Top Customers" sample="1">
+                <field name="customer_display_name" type="row"/>
+                <field name="total_amount" type="measure"/>
+                <field name="tip_amount" type="measure"/>
+                <field name="net_amount" type="measure"/>
+            </pivot>
+        </field>
+    </record>
+
+    <record id="action_clover_top_customers" model="ir.actions.act_window">
+        <field name="name">Top Customers</field>
+        <field name="res_model">clover.sale</field>
+        <field name="view_mode">graph,pivot,list</field>
+        <field name="view_ids" eval="[
+            (5, 0, 0),
+            (0, 0, {'view_mode': 'graph', 'view_id': ref('clover_top_customers_view_graph')}),
+            (0, 0, {'view_mode': 'pivot', 'view_id': ref('clover_top_customers_view_pivot')}),
+            (0, 0, {'view_mode': 'list',  'view_id': ref('clover_sale_view_list')}),
+        ]"/>
+        <field name="search_view_id" ref="clover_sale_view_search"/>
+        <field name="context">{
+            'search_default_filter_date': 1,
+            'search_default_grp_customer': 1
+        }</field>
+        <field name="help" type="html">
+            <p class="o_view_nocontent_smiling_face">
+                Top Customers
+            </p>
+            <p>
+                Sales are grouped by the customer name Clover has on
+                the order — either the linked Odoo contact or the raw
+                Clover-side customer name. Walk-in / no-customer sales
+                are grouped under "Walk-in", which will usually be
+                the tallest bar in a bar/lodge setting. Flip to Pivot
+                and sort by the revenue column for the exact top-10
+                named customers.
+            </p>
+        </field>
+    </record>
+
+    <!--
+        The "Group by Customer" filter used above doesn't exist on
+        clover_sale_view_search yet — it groups by partner_id there.
+        Add a new filter that groups by the more useful
+        customer_display_name (which includes walk-ins and raw
+        Clover names for unlinked sales).
+    -->
+    <record id="clover_sale_view_search_extend_customer" model="ir.ui.view">
+        <field name="name">clover.sale.search.extend.customer</field>
+        <field name="model">clover.sale</field>
+        <field name="inherit_id" ref="clover_sale_view_search"/>
+        <field name="arch" type="xml">
+            <xpath expr="//filter[@name='grp_date']" position="after">
+                <filter name="grp_customer" string="Customer"
+                        context="{'group_by': 'customer_display_name'}"/>
+            </xpath>
+        </field>
+    </record>
+
+    <!-- ================================================================ -->
+    <!-- Menu structure — Clover → Dashboard → Leaderboards               -->
+    <!-- ================================================================ -->
+    <menuitem id="menu_clover_leaderboards_group"
+              name="Leaderboards"
+              parent="menu_clover_reporting_root"
+              sequence="15"
+              groups="payment_clover.group_clover_user"/>
+
+    <menuitem id="menu_clover_top_items"
+              name="Top Items"
+              parent="menu_clover_leaderboards_group"
+              action="action_clover_top_items"
+              sequence="10"
+              groups="payment_clover.group_clover_user"/>
+
+    <menuitem id="menu_clover_top_employees"
+              name="Top Employees"
+              parent="menu_clover_leaderboards_group"
+              action="action_clover_top_employees"
+              sequence="20"
+              groups="payment_clover.group_clover_user"/>
+
+    <menuitem id="menu_clover_top_customers"
+              name="Top Customers"
+              parent="menu_clover_leaderboards_group"
+              action="action_clover_top_customers"
+              sequence="30"
+              groups="payment_clover.group_clover_user"/>
+
+</odoo>

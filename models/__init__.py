@@ -6,3 +6,4 @@ from . import res_partner
 from . import product_template
 from . import payment_provider
 from . import payment_transaction
+from . import ir_ui_view

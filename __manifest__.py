@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 {
     "name": "Payment Provider: Clover",
-    "version": "19.0.4.6",
+    "version": "19.0.4.8",
     "category": "Accounting/Payment Providers",
     "summary": "Accept payments via Clover (charges, refunds, auth/capture).",
     "description": """
@@ -84,6 +84,10 @@ levels visible on the user form:
         # (references action_clover_report_* records) and AFTER
         # payment_terminal_views.xml (references menu_clover_root).
         "views/clover_dashboard_views.xml",
+        # Leaderboards — Top Items / Employees / Customers. Loads
+        # after clover_reporting_views.xml because it inherits its
+        # search view and reuses list views defined there.
+        "views/clover_leaderboards_views.xml",
         "views/hr_department_views.xml",
         "views/hr_employee_views.xml",
         "views/product_template_views.xml",
