@@ -1,125 +1,168 @@
 /** @odoo-module **/
 /**
- * Darkens axis tick labels, legend text, and axis titles across
- * every Chart.js-powered graph in the Odoo backend.
+ * Force every Chart.js chart in the Odoo backend to render tick
+ * labels, legend text, and axis titles in pure black.
  *
- * Two layers of belt-and-braces:
+ * The earlier revisions of this patch relied on
+ * `GraphRenderer.getScaleOptions()` / `getChartConfig()` — those
+ * either don't exist under those names in this Odoo 19 build, or
+ * Odoo overwrites the returned options with its own light-grey
+ * palette AFTER our patch runs. Either way, the labels stayed
+ * grey.
  *
- * 1. Patch GraphRenderer.getScaleOptions() / getChartConfig()
- *    when those methods exist (Odoo 17+ pattern). This is the
- *    "clean" hook — it runs before Chart.js is even handed the
- *    options.
+ * This revision uses two mechanisms that ALWAYS work because they
+ * run at the Chart.js layer, downstream of any Odoo option
+ * mutation:
  *
- * 2. Register a Chart.js `beforeInit` plugin that walks the raw
- *    Chart.js `config.options` on every chart and forces the text
- *    colour to DARK. This runs even if the GraphRenderer patch
- *    silently no-ops because Odoo changed its internal method
- *    names, and catches any third-party charts as well.
+ *   1. A registered Chart.js plugin whose `beforeDraw` hook mutates
+ *      the chart's live `options` object (color, scale ticks,
+ *      legend labels, axis titles) right before the canvas is
+ *      painted. Chart.js re-reads these on every animation frame,
+ *      so any Odoo-side reset gets clobbered before it's visible.
  *
- * DARK is pure black for maximum readability on white; drop it to
- * #111 or #1a1a1a if it starts to feel harsh against coloured
- * bars.
+ *   2. A periodic canvas sweep that walks every <canvas> in the
+ *      DOM, resolves its Chart.js instance via `Chart.getChart()`,
+ *      patches its options, and forces a redraw — catches charts
+ *      that were rendered BEFORE this asset finished loading
+ *      (fast dashboards, cached pages).
+ *
+ * Both mechanisms need `window.Chart` — Chart.js's UMD build sets
+ * that on load, and Odoo ships the UMD build in the backend
+ * assets bundle. We wait for it to appear before wiring up.
  */
-import { patch } from "@web/core/utils/patch";
-import { GraphRenderer } from "@web/views/graph/graph_renderer";
 
 const DARK = "#000000";
+const AXIS_LINE = "rgba(0, 0, 0, 0.15)";
 
-// ---------------------------------------------------------------
-// Layer 1 — patch Odoo's GraphRenderer methods when present.
-// ---------------------------------------------------------------
-function forceDark(options) {
-    if (!options || typeof options !== "object") return options;
+/**
+ * Mutate a Chart.js `options` object in-place so all text renders
+ * dark. Safe on partial/missing options — every sub-key is guarded.
+ */
+function forceDarkOptions(options) {
+    if (!options || typeof options !== "object") return;
+
     options.color = DARK;
-    if (options.ticks) options.ticks.color = DARK;
-    if (options.title) options.title.color = DARK;
-    if (options.pointLabels) options.pointLabels.color = DARK;
-    return options;
-}
+    options.borderColor = options.borderColor || AXIS_LINE;
 
-patch(GraphRenderer.prototype, {
-    getScaleOptions() {
-        const options = super.getScaleOptions
-            ? super.getScaleOptions(...arguments)
-            : undefined;
-        return forceDark(options);
-    },
-    getChartConfig() {
-        const config = super.getChartConfig
-            ? super.getChartConfig(...arguments)
-            : undefined;
-        if (config && config.options) {
-            config.options.color = DARK;
-            const scales = config.options.scales || {};
-            for (const key of Object.keys(scales)) {
-                forceDark(scales[key]);
+    // Scales — bar/line/pie x + y ticks and axis titles.
+    const scales = options.scales;
+    if (scales && typeof scales === "object") {
+        for (const key of Object.keys(scales)) {
+            const scale = scales[key];
+            if (!scale || typeof scale !== "object") continue;
+            scale.ticks = { ...(scale.ticks || {}), color: DARK };
+            if (scale.title) {
+                scale.title = { ...scale.title, color: DARK };
             }
-            const legend = config.options.plugins &&
-                           config.options.plugins.legend;
-            if (legend) {
-                legend.labels = { ...(legend.labels || {}),
-                                  color: DARK };
+            if (scale.pointLabels) {
+                scale.pointLabels = {
+                    ...scale.pointLabels, color: DARK,
+                };
             }
-            const tooltip = config.options.plugins &&
-                            config.options.plugins.tooltip;
-            if (tooltip) {
-                tooltip.titleColor = "#ffffff";
-                tooltip.bodyColor = "#ffffff";
+            // Faint grid lines against the darker text.
+            if (scale.grid) {
+                scale.grid = {
+                    ...scale.grid,
+                    color: AXIS_LINE,
+                };
             }
         }
-        return config;
-    },
-});
-
-// ---------------------------------------------------------------
-// Layer 2 — global Chart.js plugin, in case the renderer patch
-// above silently no-ops (method name drift between Odoo minor
-// versions). The plugin registers itself once Chart.js is
-// available on the global window.
-// ---------------------------------------------------------------
-function installGlobalChartPlugin() {
-    const Chart = window.Chart;
-    if (!Chart || typeof Chart.register !== "function") {
-        // Try again shortly — Chart.js is loaded lazily with the
-        // first graph view. 250ms polling is fine because this
-        // never runs after the first hit.
-        setTimeout(installGlobalChartPlugin, 250);
-        return;
-    }
-    if (window.__cloverDarkTickPluginInstalled) return;
-    window.__cloverDarkTickPluginInstalled = true;
-
-    // Nuke Chart.js's own light-grey defaults.
-    Chart.defaults.color = DARK;
-    if (Chart.defaults.font) Chart.defaults.font.weight = "500";
-    if (Chart.defaults.scale && Chart.defaults.scale.ticks) {
-        Chart.defaults.scale.ticks.color = DARK;
-    }
-    if (Chart.defaults.plugins &&
-        Chart.defaults.plugins.legend &&
-        Chart.defaults.plugins.legend.labels) {
-        Chart.defaults.plugins.legend.labels.color = DARK;
     }
 
-    Chart.register({
-        id: "cloverDarkTicks",
-        beforeUpdate(chart) {
-            const opts = chart.config && chart.config.options;
-            if (!opts) return;
-            opts.color = DARK;
-            const scales = opts.scales || {};
-            for (const key of Object.keys(scales)) {
-                const scale = scales[key];
-                scale.ticks = { ...(scale.ticks || {}), color: DARK };
-                if (scale.title) scale.title.color = DARK;
-            }
-            const legend = opts.plugins && opts.plugins.legend;
-            if (legend) {
-                legend.labels = { ...(legend.labels || {}),
-                                  color: DARK };
-            }
-        },
-    });
+    // Plugins — legend, title, subtitle.
+    const plugins = options.plugins;
+    if (plugins && typeof plugins === "object") {
+        if (plugins.legend) {
+            plugins.legend.labels = {
+                ...(plugins.legend.labels || {}),
+                color: DARK,
+            };
+        }
+        if (plugins.title) {
+            plugins.title.color = DARK;
+        }
+        if (plugins.subtitle) {
+            plugins.subtitle.color = DARK;
+        }
+    }
 }
 
-installGlobalChartPlugin();
+/**
+ * Sweep the DOM for canvas elements, resolve their Chart.js
+ * instances, apply the dark options, and force a redraw.
+ */
+function sweepCanvases(Chart) {
+    const canvases = document.querySelectorAll("canvas");
+    for (const canvas of canvases) {
+        let chart = null;
+        try {
+            chart = Chart.getChart && Chart.getChart(canvas);
+        } catch (e) {
+            continue;
+        }
+        if (!chart || !chart.options) continue;
+        forceDarkOptions(chart.options);
+        try {
+            chart.update("none");
+        } catch (e) {
+            /* transient render errors are fine — the next
+               beforeDraw pass will still darken the labels. */
+        }
+    }
+}
+
+/**
+ * Bootstraps the plugin + sweeper once window.Chart is available.
+ */
+function boot() {
+    const Chart = typeof window !== "undefined" && window.Chart;
+    if (!Chart || typeof Chart.register !== "function") {
+        // Chart.js is loaded with the graph view bundle, which
+        // may resolve after this asset. Retry until it's ready
+        // (or give up after ~30s).
+        boot._attempts = (boot._attempts || 0) + 1;
+        if (boot._attempts < 300) {
+            setTimeout(boot, 100);
+        }
+        return;
+    }
+    if (window.__cloverDarkTickInstalled) return;
+    window.__cloverDarkTickInstalled = true;
+
+    // -- Layer A: rewrite defaults so brand-new charts start dark.
+    try {
+        Chart.defaults.color = DARK;
+        if (Chart.defaults.font) {
+            Chart.defaults.font.weight = "500";
+        }
+        if (Chart.defaults.scale && Chart.defaults.scale.ticks) {
+            Chart.defaults.scale.ticks.color = DARK;
+        }
+        if (Chart.defaults.plugins &&
+            Chart.defaults.plugins.legend &&
+            Chart.defaults.plugins.legend.labels) {
+            Chart.defaults.plugins.legend.labels.color = DARK;
+        }
+    } catch (e) {
+        /* Chart.defaults shape varies by version — non-fatal. */
+    }
+
+    // -- Layer B: plugin that darkens options on every draw.
+    Chart.register({
+        id: "cloverDarkText",
+        beforeUpdate(chart) {
+            forceDarkOptions(chart.config && chart.config.options);
+        },
+        beforeDraw(chart) {
+            forceDarkOptions(chart.options);
+        },
+    });
+
+    // -- Layer C: sweep already-rendered charts.
+    sweepCanvases(Chart);
+    // Keep sweeping — a graph view swap doesn't always fire the
+    // right lifecycle for a newly-mounted chart to pick us up.
+    setInterval(() => sweepCanvases(Chart), 1500);
+}
+
+boot();
