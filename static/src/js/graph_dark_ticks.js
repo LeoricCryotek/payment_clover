@@ -3,31 +3,19 @@
  * Darkens axis tick labels, legend text, and axis titles for every
  * Chart.js chart in the Odoo backend.
  *
- * Prior revisions relied on `window.Chart` — Odoo 19 uses ES
- * modules and does NOT set that global, so those revisions ran
- * successfully but their patches never touched a real Chart
- * instance. This revision:
+ * IMPORTANT: Chart.js v4 wraps option objects with a proxy that
+ * carries internal state ($context, _indexable flags, scriptable
+ * resolvers, etc.). REPLACING an option object with a plain spread
+ * copy strips that metadata and causes Chart.js's `_scriptable` to
+ * crash on the next redraw with:
  *
- *   * Locates Chart.js via three fallbacks:
- *       (a) window.Chart (UMD builds still expose it),
- *       (b) Odoo's module loader — scans every loaded module for
- *           an export whose shape matches Chart's static API,
- *       (c) DOM sniff — grabs a Chart instance off any existing
- *           <canvas> via `Chart.getChart` and reads its constructor.
+ *   TypeError: name.startsWith is not a function.
  *
- *   * Applies dark text at THREE levels of Chart.js config:
- *       (i)   `Chart.defaults.color` and per-scale-type defaults
- *             (Chart.js v4 stores linear/category/time defaults
- *             separately under `Chart.defaults.scales.<type>`),
- *       (ii)  a plugin whose `beforeUpdate` + `beforeDraw` hooks
- *             re-apply the dark color on every render frame,
- *       (iii) an interval sweep that walks every canvas in the
- *             DOM, patches its options, and forces an update.
- *
- *   * Logs progress to the browser console under the tag
- *     `[clover-dark-ticks]` so we can diagnose remotely — check
- *     the console after a hard-refresh to see which layer found
- *     Chart and how many charts were patched.
+ * This revision mutates the existing option objects in place
+ * (assigning individual properties) rather than replacing them,
+ * and moves the heavy work out of `beforeDraw` (fires every
+ * animation frame) into `beforeUpdate` / `afterInit` (fire once
+ * per data change / creation).
  */
 
 const DARK = "#000000";
@@ -43,96 +31,93 @@ function chartLooksReal(obj) {
         && typeof obj.getChart === "function";
 }
 
-function findChartViaWindow() {
+function findChart() {
     if (typeof window !== "undefined" && chartLooksReal(window.Chart)) {
         return window.Chart;
     }
-    return null;
-}
-
-function findChartViaLoader() {
     try {
         const modules = odoo && odoo.loader && odoo.loader.modules;
-        if (!modules || !modules.entries) return null;
-        for (const [, mod] of modules.entries()) {
-            if (!mod) continue;
-            if (chartLooksReal(mod.Chart)) return mod.Chart;
-            if (chartLooksReal(mod.default)) return mod.default;
+        if (modules && modules.entries) {
+            for (const [, mod] of modules.entries()) {
+                if (!mod) continue;
+                if (chartLooksReal(mod.Chart)) return mod.Chart;
+                if (chartLooksReal(mod.default)) return mod.default;
+            }
         }
-    } catch (e) {
-        // Non-fatal
-    }
-    return null;
-}
-
-function findChartViaCanvas() {
-    // Any existing chart on the page exposes its constructor.
-    const candidate = window.Chart || null;
-    if (chartLooksReal(candidate)) return candidate;
-    // Try to grab a Chart instance and get its constructor.
-    const canvases = document.querySelectorAll("canvas");
-    for (const canvas of canvases) {
-        try {
-            // Chart.js stores instances on _chartjs-like data
-            // attributes; direct access differs by version, so
-            // just try Chart.getChart via any Chart we might find.
+    } catch (e) { /* non-fatal */ }
+    try {
+        const canvases = document.querySelectorAll("canvas");
+        for (const canvas of canvases) {
             const c = window.Chart && window.Chart.getChart
                 ? window.Chart.getChart(canvas)
                 : null;
-            if (c && c.constructor) {
+            if (c && c.constructor && chartLooksReal(c.constructor)) {
                 return c.constructor;
             }
-        } catch (e) {
-            // Skip
         }
-    }
+    } catch (e) { /* non-fatal */ }
     return null;
 }
 
-function findChart() {
-    return findChartViaWindow()
-        || findChartViaLoader()
-        || findChartViaCanvas();
+// ---- Option mutation (IN-PLACE — never replace objects) --------
+
+function setDark(target, prop) {
+    if (target && typeof target === "object") {
+        try {
+            target[prop] = DARK;
+        } catch (e) { /* Chart.js may lock some option props */ }
+    }
 }
 
-// ---- Option mutation ------------------------------------------
+function setLine(target, prop) {
+    if (target && typeof target === "object") {
+        try {
+            target[prop] = AXIS_LINE;
+        } catch (e) { /* non-fatal */ }
+    }
+}
 
 function forceDarkOptions(options) {
     if (!options || typeof options !== "object") return;
-    options.color = DARK;
+
+    setDark(options, "color");
 
     const scales = options.scales;
     if (scales && typeof scales === "object") {
         for (const key of Object.keys(scales)) {
             const scale = scales[key];
             if (!scale || typeof scale !== "object") continue;
-            scale.ticks = { ...(scale.ticks || {}), color: DARK };
-            if (scale.title) {
-                scale.title = { ...scale.title, color: DARK };
+            // Mutate existing sub-objects in place. If a sub-object
+            // is missing, create an empty plain one only once — do
+            // NOT re-create on every call.
+            if (!scale.ticks) scale.ticks = {};
+            setDark(scale.ticks, "color");
+            if (scale.title && typeof scale.title === "object") {
+                setDark(scale.title, "color");
             }
-            if (scale.pointLabels) {
-                scale.pointLabels = {
-                    ...scale.pointLabels, color: DARK,
-                };
+            if (scale.pointLabels
+                && typeof scale.pointLabels === "object") {
+                setDark(scale.pointLabels, "color");
             }
-            if (scale.grid) {
-                scale.grid = {
-                    ...scale.grid, color: AXIS_LINE,
-                };
+            if (scale.grid && typeof scale.grid === "object") {
+                setLine(scale.grid, "color");
             }
         }
     }
 
     const plugins = options.plugins;
     if (plugins && typeof plugins === "object") {
-        if (plugins.legend) {
-            plugins.legend.labels = {
-                ...(plugins.legend.labels || {}),
-                color: DARK,
-            };
+        if (plugins.legend && typeof plugins.legend === "object") {
+            if (!plugins.legend.labels) plugins.legend.labels = {};
+            setDark(plugins.legend.labels, "color");
         }
-        if (plugins.title) plugins.title.color = DARK;
-        if (plugins.subtitle) plugins.subtitle.color = DARK;
+        if (plugins.title && typeof plugins.title === "object") {
+            setDark(plugins.title, "color");
+        }
+        if (plugins.subtitle
+            && typeof plugins.subtitle === "object") {
+            setDark(plugins.subtitle, "color");
+        }
     }
 }
 
@@ -145,19 +130,15 @@ function forceDarkDefaults(Chart) {
         }
     } catch (e) { /* non-fatal */ }
 
-    // Per-scale-type defaults — Chart.js v4 stores these under
-    // Chart.defaults.scales.<type> and each chart inherits from
-    // its scale type BEFORE Chart.defaults.color is consulted, so
-    // setting only Chart.defaults.color is insufficient.
     try {
         const scales = Chart.defaults.scales;
         if (scales) {
             for (const type of Object.keys(scales)) {
                 const sd = scales[type];
                 if (!sd) continue;
-                sd.ticks = sd.ticks || {};
+                if (!sd.ticks) sd.ticks = {};
                 sd.ticks.color = DARK;
-                sd.title = sd.title || {};
+                if (!sd.title) sd.title = {};
                 sd.title.color = DARK;
                 if (sd.grid) sd.grid.color = AXIS_LINE;
             }
@@ -167,11 +148,14 @@ function forceDarkDefaults(Chart) {
     try {
         const legend = Chart.defaults.plugins
             && Chart.defaults.plugins.legend;
-        if (legend && legend.labels) {
+        if (legend) {
+            if (!legend.labels) legend.labels = {};
             legend.labels.color = DARK;
         }
     } catch (e) { /* non-fatal */ }
 }
+
+// ---- Boot -----------------------------------------------------
 
 function sweepCanvases(Chart) {
     if (!Chart.getChart) return 0;
@@ -183,14 +167,10 @@ function sweepCanvases(Chart) {
             forceDarkOptions(inst.options);
             inst.update("none");
             touched++;
-        } catch (e) {
-            /* transient */
-        }
+        } catch (e) { /* transient */ }
     });
     return touched;
 }
-
-// ---- Boot -----------------------------------------------------
 
 function boot() {
     const Chart = findChart();
@@ -200,31 +180,29 @@ function boot() {
             setTimeout(boot, 100);
         } else {
             console.warn(TAG,
-                "Chart.js not found after 30s of polling. Graph "
-                + "labels will remain at Odoo defaults. Open a "
-                + "graph view (e.g. Clover → Dashboard → Overview) "
-                + "and reload — sometimes Chart.js is only loaded "
-                + "lazily on first graph render.");
+                "Chart.js not found after 30s of polling.");
         }
         return;
     }
     if (window.__cloverDarkTickInstalled) return;
     window.__cloverDarkTickInstalled = true;
-    console.info(TAG, "Chart.js found via",
-        window.Chart === Chart ? "window.Chart"
-        : "loader / canvas sniff.");
+    console.info(TAG, "Chart.js located; installing dark-text hooks.");
 
     forceDarkDefaults(Chart);
-    console.info(TAG, "Defaults set: Chart.defaults.color =",
-                 Chart.defaults.color);
 
     try {
         Chart.register({
             id: "cloverDarkText",
-            beforeUpdate(chart) {
-                forceDarkOptions(chart.config && chart.config.options);
+            // Runs once per chart create — set colors before the
+            // first paint.
+            afterInit(chart) {
+                forceDarkOptions(chart.options);
             },
-            beforeDraw(chart) {
+            // Runs whenever the data/config changes — re-apply so
+            // Odoo can't reset our colors.
+            beforeUpdate(chart) {
+                forceDarkOptions(
+                    chart.config && chart.config.options);
                 forceDarkOptions(chart.options);
             },
         });
@@ -235,12 +213,13 @@ function boot() {
 
     setTimeout(() => {
         const n = sweepCanvases(Chart);
-        console.info(TAG, "Initial canvas sweep patched", n, "chart(s).");
+        console.info(TAG, "Initial canvas sweep patched",
+                     n, "chart(s).");
     }, 500);
 
-    // Keep sweeping — new dashboards can render charts after
-    // initial mount without firing a global lifecycle we hooked.
-    setInterval(() => sweepCanvases(Chart), 1500);
+    // Slower sweep — the plugin handles most cases; this is only
+    // a safety net for late-mounted charts.
+    setInterval(() => sweepCanvases(Chart), 3000);
 }
 
 boot();
