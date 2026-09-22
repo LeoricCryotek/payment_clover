@@ -6,24 +6,23 @@
  * actions registry and wired to a menuitem in the manifest.
  *
  * Data comes from /clover/dashboard/kpis and /clover/dashboard/top
- * (see controllers/dashboard_api.py) — both are POST-JSON, both
- * take an ISO date range, both aggregate on the server so the
- * browser only sees pre-computed totals.
+ * (see controllers/dashboard_api.py). Both endpoints return
+ * synthetic demo data when the DB has no clover.sale rows, so
+ * this dashboard always renders something meaningful.
  *
- * State model:
- *   - `period`      : string key of the active preset button.
- *   - `startDate`   : Date instance, inclusive lower bound.
- *   - `endDate`     : Date instance, exclusive upper bound.
- *   - `kpis`        : object with `current`, `previous`, `range`.
- *   - `top{Products,Employees,Customers}` : arrays of row dicts.
- *   - `loading`     : boolean shown as a translucent overlay.
- *
- * Every user click (period button, prev/next-month arrow) calls
- * `refresh()` which reruns the two RPCs in parallel.
+ * Notes on imports:
+ *   - We use `useService("rpc")` instead of the standalone
+ *     `rpc` import — the service pattern is stable across every
+ *     Odoo 17/18/19 build, whereas the standalone export path
+ *     has shifted between point releases.
+ *   - `static props = "*"` (string, NOT `["*"]`) tells OWL 2 to
+ *     accept any props without validation. The array form is not
+ *     a valid props spec and throws during class definition,
+ *     which is what took the whole module down previously.
  */
 import { Component, useState, onWillStart } from "@odoo/owl";
 import { registry } from "@web/core/registry";
-import { rpc } from "@web/core/network/rpc";
+import { useService } from "@web/core/utils/hooks";
 
 function startOfDay(d) {
     const o = new Date(d);
@@ -79,9 +78,10 @@ const PERIODS = {
 
 class CloverLiveDashboard extends Component {
     static template = "payment_clover.CloverLiveDashboard";
-    static props = ["*"];
+    static props = "*";
 
     setup() {
+        this.rpc = useService("rpc");
         const now = new Date();
         const range = PERIODS.last24h(now);
         this.state = useState({
@@ -106,12 +106,12 @@ class CloverLiveDashboard extends Component {
         try {
             const [kpis, products, employees, customers] =
                 await Promise.all([
-                    rpc("/clover/dashboard/kpis", payload),
-                    rpc("/clover/dashboard/top",
+                    this.rpc("/clover/dashboard/kpis", payload),
+                    this.rpc("/clover/dashboard/top",
                         { ...payload, kind: "products", limit: 10 }),
-                    rpc("/clover/dashboard/top",
+                    this.rpc("/clover/dashboard/top",
                         { ...payload, kind: "employees", limit: 10 }),
-                    rpc("/clover/dashboard/top",
+                    this.rpc("/clover/dashboard/top",
                         { ...payload, kind: "customers", limit: 10 }),
                 ]);
             this.state.kpis = kpis;
@@ -139,12 +139,10 @@ class CloverLiveDashboard extends Component {
         start.setMonth(start.getMonth() + offset);
         this.state.startDate = startOfMonth(start);
         this.state.endDate = endOfMonth(start);
-        // Free-form date range means no preset button is active.
         this.state.period = "custom";
         this.refresh();
     }
 
-    // ---- template helpers ----
     fmt(v) {
         return new Intl.NumberFormat("en-US", {
             style: "currency", currency: "USD",
@@ -152,7 +150,8 @@ class CloverLiveDashboard extends Component {
     }
 
     fmtInt(v) {
-        return new Intl.NumberFormat("en-US").format(Math.round(v || 0));
+        return new Intl.NumberFormat("en-US").format(
+            Math.round(v || 0));
     }
 
     dateLabel() {

@@ -50,6 +50,11 @@ from odoo.exceptions import UserError
 
 _logger = logging.getLogger(__name__)
 
+_logger.info(
+    "payment_clover: loading clover.tip.report.wizard model file "
+    "(diagnostic marker for 19.0.4.17+ deploys).",
+)
+
 
 class CloverTipReportWizard(models.TransientModel):
     _name = "clover.tip.report.wizard"
