@@ -1,0 +1,338 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates xml:space="preserve">
+
+<t t-name="payment_clover.CloverLiveDashboard">
+    <div class="o_clover_dashboard p-3" style="position: relative; color:#111;">
+
+        <!-- Loading overlay -->
+        <div t-if="state.loading"
+             class="position-absolute top-0 start-0 w-100 h-100"
+             style="background: rgba(255,255,255,0.6); z-index: 10;
+                    display: flex; align-items: center;
+                    justify-content: center;">
+            <i class="fa fa-spinner fa-spin fa-2x text-muted"/>
+        </div>
+
+        <!-- Demo-mode banner (shown only when server returned
+             synthetic data because no clover.sale rows exist). -->
+        <div t-if="state.kpis and state.kpis.is_demo"
+             class="alert alert-warning py-2 px-3 mb-3"
+             style="color:#111; border-left:4px solid #ffc107;">
+            <i class="fa fa-magic me-2"/>
+            <strong>Demo Data.</strong>
+            No Clover sales are synced in this database yet, so the
+            tiles and tables below show a plausible synthetic
+            dataset — for demoing what the dashboard will look like
+            once real sync data arrives. As soon as
+            <code>clover.sale</code> has one real row, this banner
+            disappears and every number switches to live data.
+        </div>
+
+        <!-- Period picker -->
+        <div class="d-flex align-items-center flex-wrap mb-3 gap-2">
+            <div class="btn-group" role="group">
+                <button class="btn btn-sm btn-outline-secondary"
+                        t-att-class="{'active': state.period === 'last24h'}"
+                        t-on-click="() => this.setPeriod('last24h')">
+                    Last 24 Hours
+                </button>
+                <button class="btn btn-sm btn-outline-secondary"
+                        t-att-class="{'active': state.period === 'today'}"
+                        t-on-click="() => this.setPeriod('today')">
+                    Today
+                </button>
+                <button class="btn btn-sm btn-outline-secondary"
+                        t-att-class="{'active': state.period === 'yesterday'}"
+                        t-on-click="() => this.setPeriod('yesterday')">
+                    Yesterday
+                </button>
+                <button class="btn btn-sm btn-outline-secondary"
+                        t-att-class="{'active': state.period === 'last_7_days'}"
+                        t-on-click="() => this.setPeriod('last_7_days')">
+                    Last 7 Days
+                </button>
+                <button class="btn btn-sm btn-outline-secondary"
+                        t-att-class="{'active': state.period === 'this_month'}"
+                        t-on-click="() => this.setPeriod('this_month')">
+                    This Month
+                </button>
+                <button class="btn btn-sm btn-outline-secondary"
+                        t-att-class="{'active': state.period === 'last_month'}"
+                        t-on-click="() => this.setPeriod('last_month')">
+                    Last Month
+                </button>
+                <button class="btn btn-sm btn-outline-secondary"
+                        t-att-class="{'active': state.period === 'ytd'}"
+                        t-on-click="() => this.setPeriod('ytd')">
+                    Year-to-Date
+                </button>
+            </div>
+            <div class="ms-auto d-flex align-items-center">
+                <button class="btn btn-sm btn-light"
+                        title="Previous month"
+                        t-on-click="() => this.shiftMonth(-1)">
+                    <i class="fa fa-arrow-left"/>
+                </button>
+                <span class="mx-3 fw-bold" style="color:#111;"
+                      t-esc="dateLabel()"/>
+                <button class="btn btn-sm btn-light"
+                        title="Next month"
+                        t-on-click="() => this.shiftMonth(1)">
+                    <i class="fa fa-arrow-right"/>
+                </button>
+                <button class="btn btn-sm btn-light ms-2"
+                        title="Refresh"
+                        t-on-click="() => this.refresh()">
+                    <i class="fa fa-refresh"/>
+                </button>
+            </div>
+        </div>
+
+        <!-- KPI tiles -->
+        <div class="row g-3 mb-3" t-if="state.kpis">
+            <t t-set="cur" t-value="state.kpis.current"/>
+            <t t-set="prev" t-value="state.kpis.previous"/>
+
+            <!-- Gross Sales -->
+            <div class="col-md-3 col-sm-6">
+                <div class="card h-100" style="border-left:4px solid #0d6efd;">
+                    <div class="card-body">
+                        <div class="text-muted small text-uppercase">Gross Sales</div>
+                        <div class="fs-3 fw-bold" style="color:#111;" t-esc="fmt(cur.gross)"/>
+                        <t t-set="d" t-value="delta(cur.gross, prev.gross)"/>
+                        <div class="small" t-att-class="dirClass(d)">
+                            <i class="fa" t-att-class="dirIcon(d)"/>
+                            <span class="ms-1"><t t-esc="d.pct"/>% vs prior period</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Net Profit -->
+            <div class="col-md-3 col-sm-6">
+                <div class="card h-100" style="border-left:4px solid #198754;">
+                    <div class="card-body">
+                        <div class="text-muted small text-uppercase">Net Profit (Sales − COGS)</div>
+                        <div class="fs-3 fw-bold" style="color:#111;" t-esc="fmt(cur.net)"/>
+                        <t t-set="d" t-value="delta(cur.net, prev.net)"/>
+                        <div class="small" t-att-class="dirClass(d)">
+                            <i class="fa" t-att-class="dirIcon(d)"/>
+                            <span class="ms-1"><t t-esc="d.pct"/>% vs prior period</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tips -->
+            <div class="col-md-3 col-sm-6">
+                <div class="card h-100" style="border-left:4px solid #ffc107;">
+                    <div class="card-body">
+                        <div class="text-muted small text-uppercase">Tips Collected</div>
+                        <div class="fs-3 fw-bold" style="color:#111;" t-esc="fmt(cur.tips)"/>
+                        <div class="small text-muted">
+                            <t t-if="cur.gross">
+                                <t t-esc="((cur.tips / cur.gross) * 100).toFixed(1)"/>% of sales
+                            </t>
+                            <t t-else="">— of sales</t>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Orders + Avg -->
+            <div class="col-md-3 col-sm-6">
+                <div class="card h-100" style="border-left:4px solid #6f42c1;">
+                    <div class="card-body">
+                        <div class="text-muted small text-uppercase">Orders</div>
+                        <div class="fs-3 fw-bold" style="color:#111;" t-esc="fmtInt(cur.orders)"/>
+                        <div class="small text-muted">
+                            Avg ticket <span style="color:#111;" t-esc="fmt(cur.avg_ticket)"/>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Second-row KPIs -->
+        <div class="row g-3 mb-3" t-if="state.kpis">
+            <t t-set="cur" t-value="state.kpis.current"/>
+            <t t-set="prev" t-value="state.kpis.previous"/>
+
+            <div class="col-md-3 col-sm-6">
+                <div class="card h-100" style="border-left:4px solid #dc3545;">
+                    <div class="card-body">
+                        <div class="text-muted small text-uppercase">COGS</div>
+                        <div class="fs-4 fw-bold" style="color:#111;" t-esc="fmt(cur.cogs)"/>
+                        <div class="small text-muted">
+                            <t t-if="cur.gross">
+                                <t t-esc="((cur.cogs / cur.gross) * 100).toFixed(1)"/>% of gross
+                            </t>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-md-3 col-sm-6">
+                <div class="card h-100" style="border-left:4px solid #20c997;">
+                    <div class="card-body">
+                        <div class="text-muted small text-uppercase">Net Margin %</div>
+                        <div class="fs-4 fw-bold" style="color:#111;">
+                            <t t-if="cur.gross">
+                                <t t-esc="((cur.net / cur.gross) * 100).toFixed(1)"/>%
+                            </t>
+                            <t t-else="">—</t>
+                        </div>
+                        <div class="small text-muted">
+                            Prior:
+                            <t t-if="prev.gross">
+                                <t t-esc="((prev.net / prev.gross) * 100).toFixed(1)"/>%
+                            </t>
+                            <t t-else="">—</t>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-md-3 col-sm-6">
+                <div class="card h-100" style="border-left:4px solid #0dcaf0;">
+                    <div class="card-body">
+                        <div class="text-muted small text-uppercase">Prior Period Sales</div>
+                        <div class="fs-4 fw-bold" style="color:#111;" t-esc="fmt(prev.gross)"/>
+                        <div class="small text-muted"><t t-esc="fmtInt(prev.orders)"/> orders</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-md-3 col-sm-6">
+                <div class="card h-100" style="border-left:4px solid #6c757d;">
+                    <div class="card-body">
+                        <div class="text-muted small text-uppercase">Prior Period Net</div>
+                        <div class="fs-4 fw-bold" style="color:#111;" t-esc="fmt(prev.net)"/>
+                        <div class="small text-muted">
+                            <t t-if="prev.gross">
+                                <t t-esc="((prev.net / prev.gross) * 100).toFixed(1)"/>% margin
+                            </t>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Top-N tables -->
+        <div class="row g-3">
+            <div class="col-md-4">
+                <div class="card">
+                    <div class="card-header fw-bold" style="color:#111;">
+                        Top Products
+                    </div>
+                    <div class="table-responsive">
+                        <table class="table table-sm table-hover mb-0"
+                               style="color:#111;">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>Product</th>
+                                    <th class="text-end">Units</th>
+                                    <th class="text-end">Revenue</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <t t-foreach="state.topProducts" t-as="p"
+                                   t-key="p_index">
+                                    <tr>
+                                        <td t-esc="p.name"/>
+                                        <td class="text-end"
+                                            t-esc="fmtInt(p.qty)"/>
+                                        <td class="text-end fw-semibold"
+                                            t-esc="fmt(p.amount)"/>
+                                    </tr>
+                                </t>
+                                <tr t-if="!state.topProducts.length">
+                                    <td colspan="3"
+                                        class="text-center text-muted p-3">
+                                        No sales in this period.
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-md-4">
+                <div class="card">
+                    <div class="card-header fw-bold" style="color:#111;">
+                        Top Employees
+                    </div>
+                    <div class="table-responsive">
+                        <table class="table table-sm table-hover mb-0"
+                               style="color:#111;">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>Employee</th>
+                                    <th class="text-end">Sales</th>
+                                    <th class="text-end">Tips</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <t t-foreach="state.topEmployees" t-as="e"
+                                   t-key="e_index">
+                                    <tr>
+                                        <td t-esc="e.name"/>
+                                        <td class="text-end fw-semibold"
+                                            t-esc="fmt(e.amount)"/>
+                                        <td class="text-end"
+                                            t-esc="fmt(e.tips)"/>
+                                    </tr>
+                                </t>
+                                <tr t-if="!state.topEmployees.length">
+                                    <td colspan="3"
+                                        class="text-center text-muted p-3">
+                                        No employee sales in this period.
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-md-4">
+                <div class="card">
+                    <div class="card-header fw-bold" style="color:#111;">
+                        Top Customers
+                    </div>
+                    <div class="table-responsive">
+                        <table class="table table-sm table-hover mb-0"
+                               style="color:#111;">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>Customer</th>
+                                    <th class="text-end">Revenue</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <t t-foreach="state.topCustomers" t-as="c"
+                                   t-key="c_index">
+                                    <tr>
+                                        <td t-esc="c.name"/>
+                                        <td class="text-end fw-semibold"
+                                            t-esc="fmt(c.amount)"/>
+                                    </tr>
+                                </t>
+                                <tr t-if="!state.topCustomers.length">
+                                    <td colspan="2"
+                                        class="text-center text-muted p-3">
+                                        No customer sales in this period.
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+    </div>
+</t>
+
+</templates>

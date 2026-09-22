@@ -1,225 +1,202 @@
 /** @odoo-module **/
 /**
- * Darkens axis tick labels, legend text, and axis titles for every
- * Chart.js chart in the Odoo backend.
+ * Force axis tick labels, axis titles, and legend text on every
+ * Odoo backend graph view to render in pure black.
  *
- * IMPORTANT: Chart.js v4 wraps option objects with a proxy that
- * carries internal state ($context, _indexable flags, scriptable
- * resolvers, etc.). REPLACING an option object with a plain spread
- * copy strips that metadata and causes Chart.js's `_scriptable` to
- * crash on the next redraw with:
+ * Root cause (verified against Odoo 19 source at
+ *   addons/web/static/src/views/graph/graph_renderer.js):
  *
- *   TypeError: name.startsWith is not a function.
+ *   Odoo derives its tick + legend colors from a module-level
+ *   `GRAPH_LABEL_COLOR` / `GRAPH_LEGEND_COLOR` computed ONCE at
+ *   import time from the `color_scheme` cookie. If that cookie
+ *   was ever set to "dark" (theme flipped, browser sync, stale
+ *   session…), the resolved color is `#E4E4E4` — nearly white —
+ *   and it becomes hard-coded in every graph's config even when
+ *   the actual page is light. Chart.js-level plugins fight a
+ *   losing battle because Odoo re-writes the colors on every
+ *   render inside `getScaleOptions()` / `getLegendOptions()`.
  *
- * This revision mutates the existing option objects in place
- * (assigning individual properties) rather than replacing them,
- * and moves the heavy work out of `beforeDraw` (fires every
- * animation frame) into `beforeUpdate` / `afterInit` (fire once
- * per data change / creation).
+ * Fix: patch those two methods directly. We now KNOW their names
+ * from the source, so a proper `@web/core/utils/patch` on
+ * `GraphRenderer.prototype` will win.
+ *
+ * We also keep the Chart.js-level plugin from the previous
+ * revision as a safety net for any other Chart.js chart that
+ * doesn't route through GraphRenderer (custom modules, spreadsheet
+ * charts, dashboards, etc.).
  */
+import { patch } from "@web/core/utils/patch";
+import { GraphRenderer } from "@web/views/graph/graph_renderer";
 
 const DARK = "#000000";
 const AXIS_LINE = "rgba(0, 0, 0, 0.15)";
 const TAG = "[clover-dark-ticks]";
 
-// ---- Chart discovery ------------------------------------------
+// ----------------------------------------------------------------
+// Layer 1 — patch Odoo's GraphRenderer directly.
+// getScaleOptions() returns `{ x: {...}, y: {...} }` for bar/line
+// charts and `{}` for pie. Both x and y have a `ticks.color` (set
+// to GRAPH_LABEL_COLOR) and an optional `title.color`.
+//
+// getLegendOptions() returns `{ labels: { generateLabels: fn }, ... }`
+// where generateLabels(chart) produces the legend row array with
+// `fontColor` on each entry. We wrap that fn to overwrite fontColor.
+// ----------------------------------------------------------------
+patch(GraphRenderer.prototype, {
+    getScaleOptions() {
+        const opts = super.getScaleOptions(...arguments);
+        if (opts && typeof opts === "object") {
+            for (const axisKey of ["x", "y", "r"]) {
+                const axis = opts[axisKey];
+                if (!axis || typeof axis !== "object") continue;
+                if (axis.ticks && typeof axis.ticks === "object") {
+                    axis.ticks.color = DARK;
+                } else {
+                    axis.ticks = { color: DARK };
+                }
+                if (axis.title && typeof axis.title === "object") {
+                    axis.title.color = DARK;
+                }
+                if (axis.pointLabels
+                    && typeof axis.pointLabels === "object") {
+                    axis.pointLabels.color = DARK;
+                }
+                // Faint but visible grid — improves readability
+                // of dark ticks against the plot area.
+                if (axis.grid && typeof axis.grid === "object"
+                    && axis.grid.color !== "transparent") {
+                    axis.grid.color = AXIS_LINE;
+                }
+            }
+        }
+        return opts;
+    },
 
-function chartLooksReal(obj) {
-    return obj && typeof obj === "object"
-        && typeof obj.register === "function"
-        && obj.defaults
-        && typeof obj.getChart === "function";
+    getLegendOptions() {
+        const opts = super.getLegendOptions(...arguments);
+        if (opts && opts.labels
+            && typeof opts.labels.generateLabels === "function") {
+            const originalGenerate = opts.labels.generateLabels;
+            opts.labels.generateLabels = function (chart) {
+                const labels = originalGenerate.call(this, chart);
+                if (Array.isArray(labels)) {
+                    for (const l of labels) {
+                        if (l && typeof l === "object") {
+                            l.fontColor = DARK;
+                        }
+                    }
+                }
+                return labels;
+            };
+        }
+        // Chart.js also honours a top-level `color` on the labels
+        // object; set it as a belt-and-braces default.
+        if (opts && opts.labels) {
+            opts.labels.color = DARK;
+        }
+        return opts;
+    },
+});
+console.info(TAG, "GraphRenderer.getScaleOptions + getLegendOptions patched.");
+
+// ----------------------------------------------------------------
+// Layer 2 — Chart.js-level defaults + plugin for anything that
+// doesn't go through Odoo's GraphRenderer (spreadsheet charts,
+// custom modules, third-party dashboards). Same code as before,
+// mutating options in place to avoid stripping Chart.js v4's
+// proxy metadata.
+// ----------------------------------------------------------------
+function setDark(target, prop) {
+    if (target && typeof target === "object") {
+        try { target[prop] = DARK; } catch (e) { /* locked */ }
+    }
+}
+
+function forceDarkOptions(options) {
+    if (!options || typeof options !== "object") return;
+    setDark(options, "color");
+    const scales = options.scales;
+    if (scales && typeof scales === "object") {
+        for (const key of Object.keys(scales)) {
+            const scale = scales[key];
+            if (!scale || typeof scale !== "object") continue;
+            if (!scale.ticks) scale.ticks = {};
+            setDark(scale.ticks, "color");
+            if (scale.title && typeof scale.title === "object") {
+                setDark(scale.title, "color");
+            }
+        }
+    }
+    const plugins = options.plugins;
+    if (plugins && plugins.legend) {
+        if (!plugins.legend.labels) plugins.legend.labels = {};
+        setDark(plugins.legend.labels, "color");
+    }
 }
 
 function findChart() {
-    if (typeof window !== "undefined" && chartLooksReal(window.Chart)) {
+    if (typeof window !== "undefined"
+        && window.Chart
+        && typeof window.Chart.register === "function") {
         return window.Chart;
     }
     try {
         const modules = odoo && odoo.loader && odoo.loader.modules;
         if (modules && modules.entries) {
             for (const [, mod] of modules.entries()) {
-                if (!mod) continue;
-                if (chartLooksReal(mod.Chart)) return mod.Chart;
-                if (chartLooksReal(mod.default)) return mod.default;
-            }
-        }
-    } catch (e) { /* non-fatal */ }
-    try {
-        const canvases = document.querySelectorAll("canvas");
-        for (const canvas of canvases) {
-            const c = window.Chart && window.Chart.getChart
-                ? window.Chart.getChart(canvas)
-                : null;
-            if (c && c.constructor && chartLooksReal(c.constructor)) {
-                return c.constructor;
+                if (mod && mod.Chart
+                    && typeof mod.Chart.register === "function") {
+                    return mod.Chart;
+                }
             }
         }
     } catch (e) { /* non-fatal */ }
     return null;
 }
 
-// ---- Option mutation (IN-PLACE — never replace objects) --------
-
-function setDark(target, prop) {
-    if (target && typeof target === "object") {
-        try {
-            target[prop] = DARK;
-        } catch (e) { /* Chart.js may lock some option props */ }
-    }
-}
-
-function setLine(target, prop) {
-    if (target && typeof target === "object") {
-        try {
-            target[prop] = AXIS_LINE;
-        } catch (e) { /* non-fatal */ }
-    }
-}
-
-function forceDarkOptions(options) {
-    if (!options || typeof options !== "object") return;
-
-    setDark(options, "color");
-
-    const scales = options.scales;
-    if (scales && typeof scales === "object") {
-        for (const key of Object.keys(scales)) {
-            const scale = scales[key];
-            if (!scale || typeof scale !== "object") continue;
-            // Mutate existing sub-objects in place. If a sub-object
-            // is missing, create an empty plain one only once — do
-            // NOT re-create on every call.
-            if (!scale.ticks) scale.ticks = {};
-            setDark(scale.ticks, "color");
-            if (scale.title && typeof scale.title === "object") {
-                setDark(scale.title, "color");
-            }
-            if (scale.pointLabels
-                && typeof scale.pointLabels === "object") {
-                setDark(scale.pointLabels, "color");
-            }
-            if (scale.grid && typeof scale.grid === "object") {
-                setLine(scale.grid, "color");
-            }
-        }
-    }
-
-    const plugins = options.plugins;
-    if (plugins && typeof plugins === "object") {
-        if (plugins.legend && typeof plugins.legend === "object") {
-            if (!plugins.legend.labels) plugins.legend.labels = {};
-            setDark(plugins.legend.labels, "color");
-        }
-        if (plugins.title && typeof plugins.title === "object") {
-            setDark(plugins.title, "color");
-        }
-        if (plugins.subtitle
-            && typeof plugins.subtitle === "object") {
-            setDark(plugins.subtitle, "color");
-        }
-    }
-}
-
-function forceDarkDefaults(Chart) {
-    try {
-        Chart.defaults.color = DARK;
-        Chart.defaults.borderColor = AXIS_LINE;
-        if (Chart.defaults.font) {
-            Chart.defaults.font.weight = "500";
-        }
-    } catch (e) { /* non-fatal */ }
-
-    try {
-        const scales = Chart.defaults.scales;
-        if (scales) {
-            for (const type of Object.keys(scales)) {
-                const sd = scales[type];
-                if (!sd) continue;
-                if (!sd.ticks) sd.ticks = {};
-                sd.ticks.color = DARK;
-                if (!sd.title) sd.title = {};
-                sd.title.color = DARK;
-                if (sd.grid) sd.grid.color = AXIS_LINE;
-            }
-        }
-    } catch (e) { /* non-fatal */ }
-
-    try {
-        const legend = Chart.defaults.plugins
-            && Chart.defaults.plugins.legend;
-        if (legend) {
-            if (!legend.labels) legend.labels = {};
-            legend.labels.color = DARK;
-        }
-    } catch (e) { /* non-fatal */ }
-}
-
-// ---- Boot -----------------------------------------------------
-
-function sweepCanvases(Chart) {
-    if (!Chart.getChart) return 0;
-    let touched = 0;
-    document.querySelectorAll("canvas").forEach((canvas) => {
-        try {
-            const inst = Chart.getChart(canvas);
-            if (!inst || !inst.options) return;
-            forceDarkOptions(inst.options);
-            inst.update("none");
-            touched++;
-        } catch (e) { /* transient */ }
-    });
-    return touched;
-}
-
-function boot() {
+function bootChartLayer() {
     const Chart = findChart();
     if (!Chart) {
-        boot._attempts = (boot._attempts || 0) + 1;
-        if (boot._attempts < 300) {
-            setTimeout(boot, 100);
-        } else {
-            console.warn(TAG,
-                "Chart.js not found after 30s of polling.");
+        bootChartLayer._attempts =
+            (bootChartLayer._attempts || 0) + 1;
+        if (bootChartLayer._attempts < 300) {
+            setTimeout(bootChartLayer, 100);
         }
         return;
     }
     if (window.__cloverDarkTickInstalled) return;
     window.__cloverDarkTickInstalled = true;
-    console.info(TAG, "Chart.js located; installing dark-text hooks.");
-
-    forceDarkDefaults(Chart);
-
+    try {
+        Chart.defaults.color = DARK;
+        if (Chart.overrides) {
+            for (const type of Object.keys(Chart.overrides)) {
+                const ov = Chart.overrides[type];
+                if (!ov || !ov.scales) continue;
+                for (const skey of Object.keys(ov.scales)) {
+                    const sv = ov.scales[skey];
+                    if (!sv) continue;
+                    if (!sv.ticks) sv.ticks = {};
+                    sv.ticks.color = DARK;
+                    if (sv.title) sv.title.color = DARK;
+                }
+            }
+        }
+    } catch (e) { /* non-fatal */ }
     try {
         Chart.register({
             id: "cloverDarkText",
-            // Runs once per chart create — set colors before the
-            // first paint.
             afterInit(chart) {
                 forceDarkOptions(chart.options);
             },
-            // Runs whenever the data/config changes — re-apply so
-            // Odoo can't reset our colors.
             beforeUpdate(chart) {
                 forceDarkOptions(
                     chart.config && chart.config.options);
                 forceDarkOptions(chart.options);
             },
         });
-        console.info(TAG, "Plugin registered.");
-    } catch (e) {
-        console.warn(TAG, "Plugin registration failed:", e);
-    }
-
-    setTimeout(() => {
-        const n = sweepCanvases(Chart);
-        console.info(TAG, "Initial canvas sweep patched",
-                     n, "chart(s).");
-    }, 500);
-
-    // Slower sweep — the plugin handles most cases; this is only
-    // a safety net for late-mounted charts.
-    setInterval(() => sweepCanvases(Chart), 3000);
+        console.info(TAG,
+            "Chart.js plugin registered (safety net).");
+    } catch (e) { /* non-fatal */ }
 }
 
-boot();
+bootChartLayer();

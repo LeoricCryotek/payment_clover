@@ -1,0 +1,272 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!--
+        QWeb PDF report — rendered from data prepared by
+        clover.tip.report.wizard._compute_report_data(). The
+        wizard is passed in via `docs`; the template uses its
+        `_compute_report_data()` output as the render context.
+    -->
+
+    <record id="action_report_clover_tips"
+            model="ir.actions.report">
+        <field name="name">Clover Tip Report</field>
+        <field name="model">clover.tip.report.wizard</field>
+        <field name="report_type">qweb-pdf</field>
+        <field name="report_name">payment_clover.report_clover_tips</field>
+        <field name="report_file">payment_clover.report_clover_tips</field>
+        <field name="binding_model_id"
+               ref="model_clover_tip_report_wizard"/>
+        <field name="binding_type">report</field>
+    </record>
+
+    <template id="report_clover_tips">
+        <t t-call="web.html_container">
+            <t t-foreach="docs" t-as="wizard">
+                <t t-set="data"
+                   t-value="wizard._compute_report_data()"/>
+                <t t-call="web.internal_layout">
+                    <div class="page" style="color:#111;">
+                        <h2 style="color:#111; margin-bottom:0;">
+                            Clover Tip Report
+                        </h2>
+                        <p class="text-muted" style="margin-top:4px;">
+                            <t t-esc="data['date_from'].strftime('%b %d, %Y')"/>
+                            —
+                            <t t-esc="data['date_to'].strftime('%b %d, %Y')"/>
+                            &#8226; generated
+                            <t t-esc="data['generated_at'].strftime('%Y-%m-%d %H:%M')"/>
+                        </p>
+
+                        <!-- Filter summary -->
+                        <div style="border:1px solid #ddd;
+                                    padding:8px 12px;
+                                    margin-bottom:16px;
+                                    background:#f8f9fa;
+                                    font-size:12px; color:#333;">
+                            <strong>Filters:</strong>
+                            <span t-if="wizard.department_ids">
+                                Departments —
+                                <t t-esc="', '.join(
+                                    wizard.department_ids.mapped('name'))"/>.
+                            </span>
+                            <span t-else="">All departments.</span>
+                            <span t-if="wizard.employee_ids">
+                                Employees —
+                                <t t-esc="', '.join(
+                                    wizard.employee_ids.mapped('name'))"/>.
+                            </span>
+                            <span t-else=""> All employees.</span>
+                            <span> Includes:
+                                <t t-if="wizard.include_unclaimed">
+                                    unclaimed;
+                                </t>
+                                <t t-if="wizard.include_gratuity">
+                                    event gratuity;
+                                </t>
+                                <t t-if="wizard.include_refunded">
+                                    refunded;
+                                </t>
+                                personal tips.
+                            </span>
+                        </div>
+
+                        <!-- Grand totals -->
+                        <table style="width:100%; margin-bottom:16px;
+                                      border-collapse:collapse;
+                                      font-size:13px; color:#111;">
+                            <tr style="background:#212529; color:#fff;">
+                                <th style="padding:6px 10px; text-align:left;">
+                                    Grand Total
+                                </th>
+                                <th style="padding:6px 10px; text-align:right;">
+                                    Personal
+                                </th>
+                                <th style="padding:6px 10px; text-align:right;">
+                                    Unclaimed
+                                </th>
+                                <th style="padding:6px 10px; text-align:right;">
+                                    Event Gratuity
+                                </th>
+                                <th style="padding:6px 10px; text-align:right;">
+                                    Total
+                                </th>
+                            </tr>
+                            <tr>
+                                <td style="padding:6px 10px;">All departments</td>
+                                <td style="padding:6px 10px; text-align:right;">
+                                    <span t-esc="'${:,.2f}'.format(
+                                        data['grand_personal'])"/>
+                                </td>
+                                <td style="padding:6px 10px; text-align:right;">
+                                    <span t-esc="'${:,.2f}'.format(
+                                        data['grand_unclaimed'])"/>
+                                </td>
+                                <td style="padding:6px 10px; text-align:right;">
+                                    <span t-esc="'${:,.2f}'.format(
+                                        data['grand_gratuity'])"/>
+                                </td>
+                                <td style="padding:6px 10px;
+                                           text-align:right;
+                                           font-weight:bold;">
+                                    <span t-esc="'${:,.2f}'.format(
+                                        data['grand_total'])"/>
+                                </td>
+                            </tr>
+                        </table>
+
+                        <!-- Per-department blocks -->
+                        <t t-if="not data['departments']">
+                            <p style="text-align:center;
+                                      color:#666;
+                                      padding:40px 0;">
+                                No tip entries matched the selected
+                                filters.
+                            </p>
+                        </t>
+
+                        <t t-foreach="data['departments']" t-as="dept">
+                            <h3 style="color:#111;
+                                       border-bottom:2px solid #212529;
+                                       padding-bottom:4px;
+                                       margin-top:20px;">
+                                <t t-esc="dept['name']"/>
+                                <span style="float:right;
+                                             font-weight:normal;
+                                             font-size:14px;">
+                                    Total:
+                                    <span t-esc="'${:,.2f}'.format(
+                                        dept['total'])"/>
+                                </span>
+                            </h3>
+
+                            <table style="width:100%;
+                                          border-collapse:collapse;
+                                          font-size:12px; color:#111;">
+                                <thead>
+                                    <tr style="background:#f1f3f5;">
+                                        <th style="padding:6px 10px;
+                                                   text-align:left;
+                                                   width:35%;">
+                                            Employee
+                                        </th>
+                                        <th style="padding:6px 10px;
+                                                   text-align:right;">
+                                            Personal
+                                        </th>
+                                        <th style="padding:6px 10px;
+                                                   text-align:right;">
+                                            Unclaimed
+                                        </th>
+                                        <th style="padding:6px 10px;
+                                                   text-align:right;">
+                                            Event Gratuity
+                                        </th>
+                                        <th style="padding:6px 10px;
+                                                   text-align:right;">
+                                            Total
+                                        </th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <t t-foreach="dept['employees_sorted']"
+                                       t-as="emp">
+                                        <tr style="border-bottom:1px solid #dee2e6;">
+                                            <td style="padding:6px 10px;
+                                                       font-weight:bold;">
+                                                <t t-esc="emp['name']"/>
+                                            </td>
+                                            <td style="padding:6px 10px;
+                                                       text-align:right;">
+                                                <span t-esc="'${:,.2f}'.format(
+                                                    emp['personal'])"/>
+                                            </td>
+                                            <td style="padding:6px 10px;
+                                                       text-align:right;">
+                                                <span t-esc="'${:,.2f}'.format(
+                                                    emp['unclaimed'])"/>
+                                            </td>
+                                            <td style="padding:6px 10px;
+                                                       text-align:right;">
+                                                <span t-esc="'${:,.2f}'.format(
+                                                    emp['gratuity'])"/>
+                                            </td>
+                                            <td style="padding:6px 10px;
+                                                       text-align:right;
+                                                       font-weight:bold;">
+                                                <span t-esc="'${:,.2f}'.format(
+                                                    emp['total'])"/>
+                                            </td>
+                                        </tr>
+
+                                        <!-- Per-day breakdown -->
+                                        <tr t-if="wizard.group_by_day">
+                                            <td colspan="5"
+                                                style="padding:0 10px 8px 30px;
+                                                       background:#fafbfc;">
+                                                <table style="width:100%;
+                                                              font-size:11px;
+                                                              color:#333;">
+                                                    <tr style="color:#666;">
+                                                        <th style="text-align:left;
+                                                                   padding:2px 6px;
+                                                                   width:120px;">Day</th>
+                                                        <th style="text-align:right;
+                                                                   padding:2px 6px;">#</th>
+                                                        <th style="text-align:right;
+                                                                   padding:2px 6px;">Personal</th>
+                                                        <th style="text-align:right;
+                                                                   padding:2px 6px;">Unclaimed</th>
+                                                        <th style="text-align:right;
+                                                                   padding:2px 6px;">Gratuity</th>
+                                                        <th style="text-align:right;
+                                                                   padding:2px 6px;">Total</th>
+                                                    </tr>
+                                                    <t t-foreach="emp['days_sorted']"
+                                                       t-as="d">
+                                                        <tr>
+                                                            <td style="padding:2px 6px;">
+                                                                <t t-esc="d['day']"/>
+                                                            </td>
+                                                            <td style="text-align:right;
+                                                                       padding:2px 6px;">
+                                                                <t t-esc="d['count']"/>
+                                                            </td>
+                                                            <td style="text-align:right;
+                                                                       padding:2px 6px;">
+                                                                <span t-esc="'${:,.2f}'.format(
+                                                                    d['personal'])"/>
+                                                            </td>
+                                                            <td style="text-align:right;
+                                                                       padding:2px 6px;">
+                                                                <span t-esc="'${:,.2f}'.format(
+                                                                    d['unclaimed'])"/>
+                                                            </td>
+                                                            <td style="text-align:right;
+                                                                       padding:2px 6px;">
+                                                                <span t-esc="'${:,.2f}'.format(
+                                                                    d['gratuity'])"/>
+                                                            </td>
+                                                            <td style="text-align:right;
+                                                                       padding:2px 6px;
+                                                                       font-weight:bold;">
+                                                                <span t-esc="'${:,.2f}'.format(
+                                                                    d['total'])"/>
+                                                            </td>
+                                                        </tr>
+                                                    </t>
+                                                </table>
+                                            </td>
+                                        </tr>
+                                    </t>
+                                </tbody>
+                            </table>
+                        </t>
+
+                    </div>
+                </t>
+            </t>
+        </t>
+    </template>
+
+</odoo>

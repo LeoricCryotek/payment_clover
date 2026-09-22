@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <!--
+        Client action wrapping the OWL CloverLiveDashboard
+        component. The `tag` matches the string the JS side
+        registers in the actions registry.
+    -->
+    <record id="action_clover_live_dashboard" model="ir.actions.client">
+        <field name="name">Clover Live Dashboard</field>
+        <field name="tag">payment_clover.live_dashboard</field>
+        <field name="target">current</field>
+    </record>
+
+    <!--
+        Menuitem — first item under Clover → Dashboard so it
+        becomes the landing page when the user clicks the Clover
+        app icon (which resolves to the lowest-sequence child
+        under menu_clover_reporting_root).
+    -->
+    <menuitem id="menu_clover_live_dashboard"
+              name="Live Dashboard"
+              parent="menu_clover_reporting_root"
+              action="action_clover_live_dashboard"
+              sequence="1"
+              groups="payment_clover.group_clover_user"/>
+
+</odoo>

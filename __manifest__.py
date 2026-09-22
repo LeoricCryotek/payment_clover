@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 {
     "name": "Payment Provider: Clover",
-    "version": "19.0.4.13",
+    "version": "19.0.4.16",
     "category": "Accounting/Payment Providers",
     "summary": "Accept payments via Clover (charges, refunds, auth/capture).",
     "description": """
@@ -70,6 +70,10 @@ levels visible on the user form:
         # its menuitem references action_clover_transaction_report_wizard).
         "wizard/clover_transaction_report_wizard_views.xml",
         "report/clover_transaction_report.xml",
+        # Tip report wizard — QWeb PDF grouped by department →
+        # employee → day, with optional email delivery.
+        # Menu binding goes under menu_clover_reports_group so it
+        # must load AFTER clover_reporting_views.xml — see below.
         # 5. Terminal menus + client action (references actions above).
         "views/payment_terminal_views.xml",
         # 6. Sync engine views + menus (added in 19.0.2.0).
@@ -88,6 +92,14 @@ levels visible on the user form:
         # after clover_reporting_views.xml because it inherits its
         # search view and reuses list views defined there.
         "views/clover_leaderboards_views.xml",
+        # Live Dashboard (OWL client action) — depends on
+        # menu_clover_reporting_root from clover_reporting_views.xml.
+        "views/clover_live_dashboard_views.xml",
+        # Tip report — the wizard menuitem lives under
+        # menu_clover_reports_group, so we load after
+        # clover_reporting_views.xml.
+        "report/clover_tip_report.xml",
+        "wizard/clover_tip_report_wizard_views.xml",
         "views/hr_department_views.xml",
         "views/hr_employee_views.xml",
         "views/product_template_views.xml",
@@ -114,6 +126,10 @@ levels visible on the user form:
             # axis tick labels + legend + axis titles render in a
             # dark body colour instead of Odoo's default pale grey.
             "payment_clover/static/src/js/graph_dark_ticks.js",
+            # 19.0.4.14: Clover Live Dashboard — OWL client action
+            # rendering KPI tiles + top-N tables + period picker.
+            "payment_clover/static/src/js/clover_live_dashboard.js",
+            "payment_clover/static/src/xml/clover_live_dashboard.xml",
         ],
     },
     "post_init_hook": "post_init_hook",

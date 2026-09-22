@@ -13,3 +13,4 @@ access_clover_tip_admin,clover.tip.entry.admin,model_clover_tip_entry,payment_cl
 access_clover_sync_preview_wizard_admin,clover.sync.preview.wizard.admin,model_clover_sync_preview_wizard,payment_clover.group_clover_admin,1,1,1,1
 access_clover_sync_preview_employee_admin,clover.sync.preview.employee.admin,model_clover_sync_preview_employee,payment_clover.group_clover_admin,1,1,1,1
 access_clover_sync_preview_sale_admin,clover.sync.preview.sale.admin,model_clover_sync_preview_sale,payment_clover.group_clover_admin,1,1,1,1
+access_clover_tip_report_wizard_user,clover.tip.report.wizard.user,model_clover_tip_report_wizard,payment_clover.group_clover_user,1,1,1,1

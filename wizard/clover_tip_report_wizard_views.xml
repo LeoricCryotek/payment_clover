@@ -1,0 +1,96 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="clover_tip_report_wizard_form"
+            model="ir.ui.view">
+        <field name="name">clover.tip.report.wizard.form</field>
+        <field name="model">clover.tip.report.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Clover Tip Report">
+                <sheet>
+                    <div class="alert alert-info mb-3" role="alert">
+                        <i class="fa fa-info-circle me-1"/>
+                        <strong>Clover-side tips only.</strong>
+                        This report sums <code>clover.tip.entry</code>
+                        rows — tips paid on Clover payments. Cash
+                        tips left off-ticket are not included, and
+                        neither are non-Clover tips (POS, house
+                        accounts, etc.). Choose a date range and
+                        optional departments/employees, then
+                        Generate PDF (opens the report) or Email
+                        Report (attaches it to a message).
+                    </div>
+
+                    <group>
+                        <group string="Date Range">
+                            <field name="date_from"/>
+                            <field name="date_to"/>
+                            <field name="group_by_day"/>
+                        </group>
+                        <group string="Filters">
+                            <field name="department_ids"
+                                   widget="many2many_tags"
+                                   options="{'no_create': True}"
+                                   placeholder="All departments"/>
+                            <field name="employee_ids"
+                                   widget="many2many_tags"
+                                   options="{'no_create': True}"
+                                   placeholder="All employees in dept."/>
+                        </group>
+                    </group>
+
+                    <group string="What to Include">
+                        <group>
+                            <field name="include_unclaimed"/>
+                            <field name="include_gratuity"/>
+                        </group>
+                        <group>
+                            <field name="include_refunded"/>
+                        </group>
+                    </group>
+
+                    <group string="Email (optional)">
+                        <field name="email_to"
+                               placeholder="alice@example.com, bob@example.com"/>
+                        <field name="email_subject"
+                               invisible="not email_to"/>
+                        <field name="email_body"
+                               invisible="not email_to"/>
+                    </group>
+                </sheet>
+                <footer>
+                    <button name="action_generate_pdf"
+                            type="object"
+                            string="Generate PDF"
+                            class="btn-primary"
+                            icon="fa-file-pdf-o"/>
+                    <button name="action_send_email"
+                            type="object"
+                            string="Email Report"
+                            class="btn-primary"
+                            icon="fa-envelope"
+                            invisible="not email_to"/>
+                    <button string="Cancel"
+                            class="btn-secondary"
+                            special="cancel"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_clover_tip_report_wizard"
+            model="ir.actions.act_window">
+        <field name="name">Tip Report</field>
+        <field name="res_model">clover.tip.report.wizard</field>
+        <field name="view_mode">form</field>
+        <field name="target">new</field>
+    </record>
+
+    <menuitem id="menu_clover_tip_report_wizard"
+              name="Tip Report (Wizard)"
+              parent="menu_clover_reports_group"
+              action="action_clover_tip_report_wizard"
+              sequence="70"
+              groups="payment_clover.group_clover_user"/>
+
+</odoo>
