@@ -22,7 +22,7 @@
  */
 import { Component, useState, onWillStart } from "@odoo/owl";
 import { registry } from "@web/core/registry";
-import { useService } from "@web/core/utils/hooks";
+import { rpc } from "@web/core/network/rpc";
 
 function startOfDay(d) {
     const o = new Date(d);
@@ -81,7 +81,6 @@ class CloverLiveDashboard extends Component {
     static props = "*";
 
     setup() {
-        this.rpc = useService("rpc");
         const now = new Date();
         const range = PERIODS.last24h(now);
         this.state = useState({
@@ -106,12 +105,12 @@ class CloverLiveDashboard extends Component {
         try {
             const [kpis, products, employees, customers] =
                 await Promise.all([
-                    this.rpc("/clover/dashboard/kpis", payload),
-                    this.rpc("/clover/dashboard/top",
+                    rpc("/clover/dashboard/kpis", payload),
+                    rpc("/clover/dashboard/top",
                         { ...payload, kind: "products", limit: 10 }),
-                    this.rpc("/clover/dashboard/top",
+                    rpc("/clover/dashboard/top",
                         { ...payload, kind: "employees", limit: 10 }),
-                    this.rpc("/clover/dashboard/top",
+                    rpc("/clover/dashboard/top",
                         { ...payload, kind: "customers", limit: 10 }),
                 ]);
             this.state.kpis = kpis;

@@ -8,6 +8,17 @@
         `_compute_report_data()` output as the render context.
     -->
 
+    <!--
+        Report action — intentionally leaves off binding_model_id
+        and binding_type. Those two fields make the report appear
+        in the Print dropdown on the wizard form, but if the
+        model_XXX external ID isn't populated yet at data-load
+        time (which happens if the Python file has a silent load
+        issue), the whole XML file fails to import and every
+        record inside it — including the QWeb template — is lost.
+        Without bindings the wizard's Generate PDF button still
+        calls the report by ref, so nothing user-facing changes.
+    -->
     <record id="action_report_clover_tips"
             model="ir.actions.report">
         <field name="name">Clover Tip Report</field>
@@ -15,9 +26,6 @@
         <field name="report_type">qweb-pdf</field>
         <field name="report_name">payment_clover.report_clover_tips</field>
         <field name="report_file">payment_clover.report_clover_tips</field>
-        <field name="binding_model_id"
-               ref="model_clover_tip_report_wizard"/>
-        <field name="binding_type">report</field>
     </record>
 
     <template id="report_clover_tips">

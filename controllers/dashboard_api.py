@@ -157,7 +157,7 @@ class CloverDashboardApi(http.Controller):
 
     @http.route(
         "/clover/dashboard/kpis",
-        type="json", auth="user", methods=["POST"],
+        type="jsonrpc", auth="user", methods=["POST"],
     )
     def kpis(self, start_date=None, end_date=None):
         env = request.env
@@ -234,7 +234,7 @@ class CloverDashboardApi(http.Controller):
 
     @http.route(
         "/clover/dashboard/top",
-        type="json", auth="user", methods=["POST"],
+        type="jsonrpc", auth="user", methods=["POST"],
     )
     def top(self, kind="products", start_date=None,
             end_date=None, limit=10):

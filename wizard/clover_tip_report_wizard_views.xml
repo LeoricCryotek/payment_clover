@@ -9,7 +9,8 @@
             <form string="Clover Tip Report">
                 <sheet>
                     <div class="alert alert-info mb-3" role="alert">
-                        <i class="fa fa-info-circle me-1"/>
+                        <i class="fa fa-info-circle me-1"
+                           title="Information"/>
                         <strong>Clover-side tips only.</strong>
                         This report sums <code>clover.tip.entry</code>
                         rows — tips paid on Clover payments. Cash
