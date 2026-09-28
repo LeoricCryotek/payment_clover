@@ -95,7 +95,10 @@
 
             <!-- Gross Sales -->
             <div class="col-md-3 col-sm-6">
-                <div class="card h-100" style="border-left:4px solid #0d6efd;">
+                <div class="card h-100 o_clover_tile"
+                     style="border-left:4px solid #0d6efd; cursor:pointer;"
+                     title="Click to open the underlying sales"
+                     t-on-click="openSales">
                     <div class="card-body">
                         <div class="text-muted small text-uppercase">Gross Sales</div>
                         <div class="fs-3 fw-bold" style="color:#111;" t-esc="fmt(cur.gross)"/>
@@ -110,7 +113,10 @@
 
             <!-- Net Profit -->
             <div class="col-md-3 col-sm-6">
-                <div class="card h-100" style="border-left:4px solid #198754;">
+                <div class="card h-100 o_clover_tile"
+                     style="border-left:4px solid #198754; cursor:pointer;"
+                     title="Click to open the sales this net came from"
+                     t-on-click="openNet">
                     <div class="card-body">
                         <div class="text-muted small text-uppercase">Net Profit (Sales − COGS)</div>
                         <div class="fs-3 fw-bold" style="color:#111;" t-esc="fmt(cur.net)"/>
@@ -125,7 +131,10 @@
 
             <!-- Tips -->
             <div class="col-md-3 col-sm-6">
-                <div class="card h-100" style="border-left:4px solid #ffc107;">
+                <div class="card h-100 o_clover_tile"
+                     style="border-left:4px solid #ffc107; cursor:pointer;"
+                     title="Click to open the tip entries"
+                     t-on-click="openTips">
                     <div class="card-body">
                         <div class="text-muted small text-uppercase">Tips Collected</div>
                         <div class="fs-3 fw-bold" style="color:#111;" t-esc="fmt(cur.tips)"/>
@@ -141,7 +150,10 @@
 
             <!-- Orders + Avg -->
             <div class="col-md-3 col-sm-6">
-                <div class="card h-100" style="border-left:4px solid #6f42c1;">
+                <div class="card h-100 o_clover_tile"
+                     style="border-left:4px solid #6f42c1; cursor:pointer;"
+                     title="Click to open every order in this window"
+                     t-on-click="openOrders">
                     <div class="card-body">
                         <div class="text-muted small text-uppercase">Orders</div>
                         <div class="fs-3 fw-bold" style="color:#111;" t-esc="fmtInt(cur.orders)"/>
@@ -159,7 +171,10 @@
             <t t-set="prev" t-value="state.kpis.previous"/>
 
             <div class="col-md-3 col-sm-6">
-                <div class="card h-100" style="border-left:4px solid #dc3545;">
+                <div class="card h-100 o_clover_tile"
+                     style="border-left:4px solid #dc3545; cursor:pointer;"
+                     title="Click to open the individual sale-line COGS"
+                     t-on-click="openCogs">
                     <div class="card-body">
                         <div class="text-muted small text-uppercase">COGS</div>
                         <div class="fs-4 fw-bold" style="color:#111;" t-esc="fmt(cur.cogs)"/>
@@ -173,7 +188,10 @@
             </div>
 
             <div class="col-md-3 col-sm-6">
-                <div class="card h-100" style="border-left:4px solid #20c997;">
+                <div class="card h-100 o_clover_tile"
+                     style="border-left:4px solid #20c997; cursor:pointer;"
+                     title="Click to open the sales driving this margin"
+                     t-on-click="openNet">
                     <div class="card-body">
                         <div class="text-muted small text-uppercase">Net Margin %</div>
                         <div class="fs-4 fw-bold" style="color:#111;">
@@ -194,7 +212,10 @@
             </div>
 
             <div class="col-md-3 col-sm-6">
-                <div class="card h-100" style="border-left:4px solid #0dcaf0;">
+                <div class="card h-100 o_clover_tile"
+                     style="border-left:4px solid #0dcaf0; cursor:pointer;"
+                     title="Click to open the prior-period sales"
+                     t-on-click="openPriorSales">
                     <div class="card-body">
                         <div class="text-muted small text-uppercase">Prior Period Sales</div>
                         <div class="fs-4 fw-bold" style="color:#111;" t-esc="fmt(prev.gross)"/>
@@ -204,7 +225,10 @@
             </div>
 
             <div class="col-md-3 col-sm-6">
-                <div class="card h-100" style="border-left:4px solid #6c757d;">
+                <div class="card h-100 o_clover_tile"
+                     style="border-left:4px solid #6c757d; cursor:pointer;"
+                     title="Click to open the prior-period sales"
+                     t-on-click="openPriorNet">
                     <div class="card-body">
                         <div class="text-muted small text-uppercase">Prior Period Net</div>
                         <div class="fs-4 fw-bold" style="color:#111;" t-esc="fmt(prev.net)"/>
@@ -238,7 +262,9 @@
                             <tbody>
                                 <t t-foreach="state.topProducts" t-as="p"
                                    t-key="p_index">
-                                    <tr>
+                                    <tr style="cursor:pointer;"
+                                        title="Click to see every line item for this product"
+                                        t-on-click="() => this.openProduct(p)">
                                         <td t-esc="p.name"/>
                                         <td class="text-end"
                                             t-esc="fmtInt(p.qty)"/>
@@ -276,7 +302,9 @@
                             <tbody>
                                 <t t-foreach="state.topEmployees" t-as="e"
                                    t-key="e_index">
-                                    <tr>
+                                    <tr style="cursor:pointer;"
+                                        title="Click to see every sale rung up by this cashier"
+                                        t-on-click="() => this.openEmployee(e)">
                                         <td t-esc="e.name"/>
                                         <td class="text-end fw-semibold"
                                             t-esc="fmt(e.amount)"/>
@@ -313,7 +341,9 @@
                             <tbody>
                                 <t t-foreach="state.topCustomers" t-as="c"
                                    t-key="c_index">
-                                    <tr>
+                                    <tr style="cursor:pointer;"
+                                        title="Click to see this customer's sales"
+                                        t-on-click="() => this.openCustomer(c)">
                                         <td t-esc="c.name"/>
                                         <td class="text-end fw-semibold"
                                             t-esc="fmt(c.amount)"/>

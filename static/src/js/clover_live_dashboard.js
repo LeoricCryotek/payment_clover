@@ -23,6 +23,23 @@
 import { Component, useState, onWillStart } from "@odoo/owl";
 import { registry } from "@web/core/registry";
 import { rpc } from "@web/core/network/rpc";
+import { useService } from "@web/core/utils/hooks";
+
+/**
+ * Build an ISO-ish date string suitable for Odoo domain literals
+ * ("2026-09-26 12:00:00"). We deliberately format in local time so
+ * the domain matches the same window the user selected on the
+ * period picker; the server stores clover.sale.date as UTC but
+ * Odoo's ORM converts on read.
+ */
+function toDomainDate(d) {
+    const pad = (n) => String(n).padStart(2, "0");
+    return (
+        d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-"
+        + pad(d.getDate()) + " " + pad(d.getHours()) + ":"
+        + pad(d.getMinutes()) + ":" + pad(d.getSeconds())
+    );
+}
 
 function startOfDay(d) {
     const o = new Date(d);
@@ -81,6 +98,8 @@ class CloverLiveDashboard extends Component {
     static props = "*";
 
     setup() {
+        this.action = useService("action");
+        this.notification = useService("notification");
         const now = new Date();
         const range = PERIODS.last24h(now);
         this.state = useState({
@@ -94,6 +113,187 @@ class CloverLiveDashboard extends Component {
             loading: true,
         });
         onWillStart(() => this.refresh());
+    }
+
+    // ---------------------------------------------------------------
+    // Click-through
+    // ---------------------------------------------------------------
+
+    /**
+     * Return the current date range as an Odoo domain fragment.
+     * All drill-through views share this range so what the user
+     * clicks is what they see.
+     */
+    _dateDomain(field = "date") {
+        return [
+            [field, ">=", toDomainDate(this.state.startDate)],
+            [field, "<", toDomainDate(this.state.endDate)],
+        ];
+    }
+
+    /**
+     * True in demo mode. Click-through is a no-op there because
+     * the numbers on screen are synthetic and don't correspond to
+     * any real record.
+     */
+    _isDemo() {
+        return !!(this.state.kpis && this.state.kpis.is_demo);
+    }
+
+    _demoNotice() {
+        this.notification.add(
+            "This dashboard is showing demo data because no Clover " +
+            "sales have been synced yet. Drill-through will work " +
+            "once real sales arrive.",
+            { type: "warning", sticky: false },
+        );
+    }
+
+    _open({ name, res_model, domain, views, context }) {
+        if (this._isDemo()) {
+            this._demoNotice();
+            return;
+        }
+        this.action.doAction({
+            type: "ir.actions.act_window",
+            name,
+            res_model,
+            domain,
+            views: views || [[false, "list"], [false, "form"]],
+            context: context || {},
+            target: "current",
+        });
+    }
+
+    // ---- Tile handlers ----
+    openSales() {
+        this._open({
+            name: "Sales — " + this.dateLabel(),
+            res_model: "clover.sale",
+            domain: this._dateDomain("date"),
+        });
+    }
+
+    openNet() {
+        // Same list as openSales but the header hints at the metric.
+        this._open({
+            name: "Net Margin — " + this.dateLabel(),
+            res_model: "clover.sale",
+            domain: this._dateDomain("date"),
+        });
+    }
+
+    openTips() {
+        // Personal (excludes gratuity / unclaimed / refunded) so
+        // the click matches the tile total.
+        this._open({
+            name: "Tips — " + this.dateLabel(),
+            res_model: "clover.tip.entry",
+            domain: [
+                ...this._dateDomain("date"),
+                ["is_event_gratuity", "=", false],
+                ["is_unclaimed", "=", false],
+                ["is_refunded", "=", false],
+            ],
+        });
+    }
+
+    openOrders() {
+        this.openSales();
+    }
+
+    openCogs() {
+        this._open({
+            name: "COGS — " + this.dateLabel(),
+            res_model: "clover.sale.line",
+            domain: this._dateDomain("date"),
+            views: [[false, "list"], [false, "pivot"], [false, "form"]],
+        });
+    }
+
+    openPriorSales() {
+        if (this._isDemo() || !this.state.kpis) {
+            this._demoNotice();
+            return;
+        }
+        const r = this.state.kpis.range;
+        this.action.doAction({
+            type: "ir.actions.act_window",
+            name: "Sales — Prior Period",
+            res_model: "clover.sale",
+            domain: [
+                ["date", ">=", r.prev_start.replace("T", " ")
+                                 .substring(0, 19)],
+                ["date", "<",  r.prev_end.replace("T", " ")
+                                 .substring(0, 19)],
+            ],
+            views: [[false, "list"], [false, "form"]],
+            target: "current",
+        });
+    }
+
+    openPriorNet() {
+        this.openPriorSales();
+    }
+
+    // ---- Row handlers ----
+    openProduct(row) {
+        if (!row || !row.id) {
+            this._demoNotice();
+            return;
+        }
+        this._open({
+            name: "Sales of " + row.name + " — " + this.dateLabel(),
+            res_model: "clover.sale.line",
+            domain: [
+                ...this._dateDomain("date"),
+                ["product_id", "=", row.id],
+            ],
+            views: [[false, "list"], [false, "pivot"], [false, "form"]],
+        });
+    }
+
+    openEmployee(row) {
+        if (!row || !row.id) {
+            this._demoNotice();
+            return;
+        }
+        this._open({
+            name: row.name + " — " + this.dateLabel(),
+            res_model: "clover.sale",
+            domain: [
+                ...this._dateDomain("date"),
+                ["employee_id", "=", row.id],
+            ],
+        });
+    }
+
+    openCustomer(row) {
+        if (!row || !row.name || row.name === "Walk-in") {
+            // Walk-in is an aggregate over sales without a linked
+            // partner — filter to those rather than by name.
+            if (row && row.name === "Walk-in") {
+                this._open({
+                    name: "Walk-in Sales — " + this.dateLabel(),
+                    res_model: "clover.sale",
+                    domain: [
+                        ...this._dateDomain("date"),
+                        ["partner_id", "=", false],
+                    ],
+                });
+                return;
+            }
+            this._demoNotice();
+            return;
+        }
+        this._open({
+            name: row.name + " — " + this.dateLabel(),
+            res_model: "clover.sale",
+            domain: [
+                ...this._dateDomain("date"),
+                ["customer_display_name", "=", row.name],
+            ],
+        });
     }
 
     async refresh() {
