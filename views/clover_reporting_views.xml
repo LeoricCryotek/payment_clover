@@ -35,11 +35,11 @@
                 <field name="customer_display_name" optional="show"/>
                 <field name="product_id" optional="show"/>
                 <field name="description"/>
-                <field name="unit_qty" sum="Units"/>
-                <field name="unit_cost" optional="hide"/>
-                <field name="cost_amount" sum="COGS" optional="show"/>
-                <field name="amount" sum="Revenue"/>
-                <field name="margin_amount" sum="Margin" optional="show"/>
+                <field name="unit_qty" sum="Total Units"/>
+                <field name="unit_cost" optional="show"/>
+                <field name="cost_amount" sum="Total COGS"/>
+                <field name="amount" sum="Total Revenue"/>
+                <field name="margin_amount" sum="Total Margin"/>
                 <field name="clover_item_id" optional="hide"/>
             </list>
         </field>

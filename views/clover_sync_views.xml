@@ -153,11 +153,13 @@
                 <field name="employee_id"/>
                 <field name="partner_id"/>
                 <field name="customer_name" optional="hide"/>
-                <field name="total_amount" sum="Total"/>
-                <field name="tip_amount" sum="Tips"/>
-                <field name="state"/>
-                <field name="is_paid"/>
-                <field name="sale_order_id" optional="show"/>
+                <field name="total_amount" sum="Gross Total"/>
+                <field name="cost_amount" sum="Total COGS" optional="show"/>
+                <field name="net_amount" sum="Total Net" optional="show"/>
+                <field name="tip_amount" sum="Total Tips"/>
+                <field name="state" optional="hide"/>
+                <field name="is_paid" optional="hide"/>
+                <field name="sale_order_id" optional="hide"/>
             </list>
         </field>
     </record>
