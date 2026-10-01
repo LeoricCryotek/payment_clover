@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 {
     "name": "Payment Provider: Clover",
-    "version": "19.0.4.25",
+    "version": "19.0.4.27",
     "category": "Accounting/Payment Providers",
     "summary": "Accept payments via Clover (charges, refunds, auth/capture).",
     "description": """
@@ -104,6 +104,9 @@ levels visible on the user form:
         # the clover.employee form (and the mapping dialog inside
         # the provider form). Doesn't register its own menuitem.
         "wizard/clover_employee_remap_wizard_views.xml",
+        # Tip bulk-reassign wizard — bound to clover.tip.entry
+        # list via a server action (Actions dropdown entry).
+        "wizard/clover_tip_reassign_wizard_views.xml",
         "views/hr_department_views.xml",
         "views/hr_employee_views.xml",
         "views/product_template_views.xml",

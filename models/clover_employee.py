@@ -151,6 +151,24 @@ class CloverEmployee(models.Model):
         to this clover.employee so employee_id points at
         new_employee. Recompute is_unclaimed on tips based on the
         new department's tip-eligibility.
+
+        Tip-attribution union — IMPORTANT:
+            A tip row's direct `clover_employee_id` is set from
+            Clover's `payment.employee.id` field, which is often
+            missing on card payments taken on shared terminals
+            where the cashier was recorded only at the ORDER
+            level. Those tips end up as orphans (clover_employee_id
+            = False) even when their parent clover.sale is
+            correctly attributed to the cashier.
+
+            To fix that at backfill time, we take the UNION of:
+              1. Tips whose direct clover_employee_id == self.id, AND
+              2. Tips whose parent clover.sale.clover_employee_id
+                 == self.id (orphan tips, caught via the sale link).
+
+            Both get re-attributed to new_employee + their
+            clover_employee_id is set so future backfills find
+            them directly.
         """
         self.ensure_one()
         Sale = self.env["clover.sale"].sudo()
@@ -161,22 +179,37 @@ class CloverEmployee(models.Model):
         if sales:
             sales.write({"employee_id": new_employee.id})
 
-        # Update clover.tip.entry rows AND recompute is_unclaimed
-        tips = Tip.search([("clover_employee_id", "=", self.id)])
+        # Tips: union of direct-match + orphan-via-sale.
+        direct_tips = Tip.search([
+            ("clover_employee_id", "=", self.id),
+        ])
+        orphan_tips = Tip.search([
+            ("clover_employee_id", "=", False),
+            ("clover_sale_id", "in", sales.ids),
+        ]) if sales else Tip.browse()
+        tips = direct_tips | orphan_tips
+
         dept = new_employee.department_id
         should_be_unclaimed = bool(
             dept and not dept.x_clover_tips_eligible
         )
         for t in tips:
-            new_vals = {"employee_id": new_employee.id}
+            new_vals = {
+                "employee_id": new_employee.id,
+                # Set the direct link too so the next backfill
+                # finds this tip without needing the sale join.
+                "clover_employee_id": self.id,
+            }
             if t.is_unclaimed != should_be_unclaimed:
                 new_vals["is_unclaimed"] = should_be_unclaimed
             t.write(new_vals)
 
         _logger.info(
-            "Clover: backfilled %d sales + %d tips from "
-            "clover.employee %s to hr.employee %s (%s)",
-            len(sales), len(tips), self.name,
+            "Clover: backfilled %d sales + %d tips (%d direct, "
+            "%d orphan via sale) from clover.employee %s to "
+            "hr.employee %s (%s)",
+            len(sales), len(tips), len(direct_tips),
+            len(orphan_tips), self.name,
             new_employee.id, new_employee.name,
         )
 

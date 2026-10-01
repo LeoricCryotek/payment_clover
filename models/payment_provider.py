@@ -1378,12 +1378,22 @@ class PaymentProvider(models.Model):
                 tip_cents = pay.get("tipAmount", 0) or 0
                 if not pay_id:
                     continue
+                # Resolve the cashier for THIS payment. Prefer the
+                # payment-level employee; fall back to the order's
+                # cashier when the payment didn't carry one (common
+                # on shared terminals + card tenders). As a last
+                # resort, inherit from emp_link (the order's
+                # already-resolved clover.employee) so tips never
+                # end up with clover_employee_id = False when the
+                # parent sale has a known cashier.
                 pay_emp = (pay.get("employee") or {})
                 pay_emp_clover_id = pay_emp.get("id") or emp_clover_id
                 pay_emp_link = CloverEmp.search([
                     ("provider_id", "=", self.id),
                     ("clover_employee_id", "=", pay_emp_clover_id),
                 ], limit=1) if pay_emp_clover_id else CloverEmp.browse()
+                if not pay_emp_link:
+                    pay_emp_link = emp_link
 
                 is_refund = (pay.get("result") == "REFUNDED"
                              or (pay.get("refunds") or {})

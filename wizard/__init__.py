@@ -3,3 +3,4 @@ from . import clover_transaction_report_wizard
 from . import clover_sync_preview_wizard
 from . import clover_tip_report_wizard
 from . import clover_employee_remap_wizard
+from . import clover_tip_reassign_wizard

@@ -175,16 +175,37 @@ class CloverEmployeeRemapWizard(models.TransientModel):
         if sales:
             sales.write({"employee_id": self.new_employee_id.id})
 
-        # Move tips + recompute is_unclaimed against the new
-        # department's tip-eligibility (volunteer dept →
-        # is_unclaimed=True).
-        tips = Tip.search(move_domain)
+        # Move tips — union of direct link + orphan-via-sale.
+        # Many Clover payments on shared terminals arrive with
+        # payment.employee.id blank, so the tip row's direct
+        # clover_employee_id is False even though its parent sale
+        # IS attributed. Catching both lets the remap re-attribute
+        # every tip that belongs to the window.
+        direct_tips = Tip.search(move_domain)
+        if self.transfer_all_history:
+            orphan_scope = [("clover_sale_id", "in", sales.ids)]
+        else:
+            orphan_scope = [
+                ("clover_sale_id", "in", sales.ids),
+                ("date", ">=", self.effective_from),
+            ]
+        orphan_tips = Tip.search([
+            ("clover_employee_id", "=", False),
+            *orphan_scope,
+        ]) if sales else Tip.browse()
+        tips = direct_tips | orphan_tips
+
         new_dept = self.new_employee_id.department_id
         should_be_unclaimed = bool(
             new_dept and not new_dept.x_clover_tips_eligible
         )
         for t in tips:
-            vals = {"employee_id": self.new_employee_id.id}
+            vals = {
+                "employee_id": self.new_employee_id.id,
+                # Set direct link so future backfills find it
+                # without needing to join through the sale.
+                "clover_employee_id": clover_emp.id,
+            }
             if t.is_unclaimed != should_be_unclaimed:
                 vals["is_unclaimed"] = should_be_unclaimed
             t.write(vals)

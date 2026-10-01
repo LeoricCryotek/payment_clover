@@ -1,0 +1,84 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="clover_tip_reassign_wizard_form"
+            model="ir.ui.view">
+        <field name="name">clover.tip.reassign.wizard.form</field>
+        <field name="model">clover.tip.reassign.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Reassign Tips to Employee">
+                <sheet>
+                    <div class="alert alert-info mb-3" role="alert">
+                        <i class="fa fa-info-circle me-1"
+                           title="Info"/>
+                        <strong>Reassigning
+                        <field name="tip_count" readonly="1" nolabel="1"
+                               class="d-inline"/>
+                        tips totalling
+                        $<field name="tip_total" readonly="1" nolabel="1"
+                                widget="float" digits="[12,2]"
+                                class="d-inline"/>.</strong>
+                        Pick the Odoo employee that should receive
+                        them. Historical records stay in place;
+                        only employee_id (and optionally
+                        is_unclaimed) is changed.
+                    </div>
+                    <group>
+                        <field name="employee_id"
+                               options="{'no_create': True}"
+                               placeholder="Search hr.employees…"/>
+                        <field name="recompute_unclaimed"/>
+                    </group>
+                    <group string="Tips Being Reassigned">
+                        <field name="tip_ids" nolabel="1" readonly="1">
+                            <list>
+                                <field name="date"/>
+                                <field name="employee_id"/>
+                                <field name="amount" sum="Total"/>
+                                <field name="clover_sale_id"/>
+                                <field name="is_unclaimed"/>
+                                <field name="is_event_gratuity"/>
+                            </list>
+                        </field>
+                    </group>
+                </sheet>
+                <footer>
+                    <button name="action_apply"
+                            type="object"
+                            string="Apply"
+                            class="btn-primary"
+                            icon="fa-check"/>
+                    <button string="Cancel"
+                            class="btn-secondary"
+                            special="cancel"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+
+    <!--
+        Server action bound to clover.tip.entry's list — appears
+        in the Actions dropdown so admins can tick orphan rows and
+        bulk-assign to a single hr.employee.
+    -->
+    <record id="action_server_clover_tip_reassign"
+            model="ir.actions.server">
+        <field name="name">Reassign to Employee…</field>
+        <field name="model_id" ref="model_clover_tip_entry"/>
+        <field name="binding_model_id" ref="model_clover_tip_entry"/>
+        <field name="binding_view_types">list</field>
+        <field name="state">code</field>
+        <field name="code">
+if records:
+    action = {
+        "type": "ir.actions.act_window",
+        "name": "Reassign Tips to Employee",
+        "res_model": "clover.tip.reassign.wizard",
+        "view_mode": "form",
+        "target": "new",
+        "context": {"default_tip_ids": [(6, 0, records.ids)]},
+    }
+        </field>
+    </record>
+
+</odoo>
