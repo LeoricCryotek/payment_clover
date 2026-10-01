@@ -8,7 +8,13 @@
         <field name="name">clover.employee.list</field>
         <field name="model">clover.employee</field>
         <field name="arch" type="xml">
-            <list string="Clover Employees" editable="bottom"
+            <!--
+                Non-editable list. Clicking a row opens the
+                clover.employee form view where employee_id can be
+                picked without hitting the Odoo 19 editable-list
+                save bug (see note in payment_provider_views.xml).
+            -->
+            <list string="Clover Employees" create="false" delete="false"
                   decoration-warning="mapping_status == 'pending'"
                   decoration-muted="mapping_status == 'excluded'"
                   decoration-info="mapping_status == 'mapped'">
@@ -17,16 +23,14 @@
                        decoration-warning="mapping_status == 'pending'"
                        decoration-muted="mapping_status == 'excluded'"
                        decoration-info="mapping_status == 'mapped'"/>
-                <field name="name" readonly="1"/>
-                <field name="nickname" readonly="1"/>
-                <field name="email" readonly="1"/>
-                <field name="role" readonly="1"/>
-                <field name="employee_id"
-                       options="{'no_create': True}"
-                       placeholder="Type a name to link…"/>
-                <field name="is_float" readonly="1"/>
+                <field name="name"/>
+                <field name="nickname"/>
+                <field name="email"/>
+                <field name="role"/>
+                <field name="employee_id"/>
+                <field name="is_float"/>
                 <field name="exclude_from_reports"/>
-                <field name="last_synced" readonly="1"/>
+                <field name="last_synced"/>
             </list>
         </field>
     </record>
@@ -36,6 +40,19 @@
         <field name="model">clover.employee</field>
         <field name="arch" type="xml">
             <form string="Clover Employee">
+                <header>
+                    <button name="action_open_remap_wizard"
+                            type="object"
+                            string="Remap with Effective Date"
+                            class="btn-primary"
+                            icon="fa-clock-o"
+                            help="Open the remap wizard — pick a new
+                                  Odoo employee and a cutoff date/time.
+                                  Only sales + tips on or after that
+                                  moment move to the new employee.
+                                  Earlier records stay with the
+                                  current mapping."/>
+                </header>
                 <sheet>
                     <group>
                         <group>

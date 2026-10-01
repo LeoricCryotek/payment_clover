@@ -108,13 +108,20 @@ class CloverEmployee(models.Model):
 
         Only fires when employee_id is actually changing to a new
         non-blank value.
+
+        Context key `clover_skip_backfill=True` suppresses the
+        automatic full-history backfill. The remap wizard uses this
+        after doing its own partial-history backfill with the
+        chosen cutoff — without it, the wizard's work would be
+        overwritten by this hook moving everything a second time.
         """
         emp_change = "employee_id" in vals
-        if emp_change:
+        skip = self.env.context.get("clover_skip_backfill")
+        if emp_change and not skip:
             # Snapshot old values before super() overwrites them.
             snapshot = {r.id: r.employee_id.id for r in self}
         result = super().write(vals)
-        if emp_change:
+        if emp_change and not skip:
             for r in self:
                 new_emp = r.employee_id
                 if not new_emp:
@@ -123,6 +130,21 @@ class CloverEmployee(models.Model):
                     continue  # No change for this row.
                 r._clover_backfill_history(new_emp)
         return result
+
+    def action_open_remap_wizard(self):
+        """Open the remap-with-cutoff wizard pre-filled with this row."""
+        self.ensure_one()
+        return {
+            "type": "ir.actions.act_window",
+            "name": "Remap with Effective Date",
+            "res_model": "clover.employee.remap.wizard",
+            "view_mode": "form",
+            "target": "new",
+            "context": {
+                "default_clover_employee_id": self.id,
+                "default_new_employee_id": self.employee_id.id,
+            },
+        }
 
     def _clover_backfill_history(self, new_employee):
         """Update every clover.sale + clover.tip.entry attributed

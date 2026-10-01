@@ -1,0 +1,82 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+
+    <record id="clover_employee_remap_wizard_form"
+            model="ir.ui.view">
+        <field name="name">clover.employee.remap.wizard.form</field>
+        <field name="model">clover.employee.remap.wizard</field>
+        <field name="arch" type="xml">
+            <form string="Remap Clover Cashier">
+                <sheet>
+                    <div class="alert alert-info mb-3" role="alert">
+                        <i class="fa fa-info-circle me-1"
+                           title="Information"/>
+                        <strong>Partial-history remap.</strong>
+                        Clover sales + tips with a date on or after
+                        the <b>Effective From</b> moment will move
+                        to the new employee. Everything earlier
+                        stays with the current mapping. Use this
+                        when staff change roles mid-period, or when
+                        a Clover login is handed off between people.
+                    </div>
+
+                    <group>
+                        <group string="Clover Cashier">
+                            <field name="clover_employee_id"
+                                   readonly="1"
+                                   options="{'no_create': True}"/>
+                            <field name="clover_cashier_name"
+                                   readonly="1"
+                                   invisible="not clover_cashier_name"/>
+                            <field name="current_employee_id"
+                                   readonly="1"/>
+                        </group>
+                        <group string="Remap To">
+                            <field name="new_employee_id"
+                                   options="{'no_create': True}"
+                                   placeholder="Search hr.employees…"/>
+                            <field name="effective_from"
+                                   invisible="transfer_all_history"
+                                   required="not transfer_all_history"/>
+                            <field name="transfer_all_history"/>
+                        </group>
+                    </group>
+
+                    <group string="Preview">
+                        <group>
+                            <field name="sale_count_moving"
+                                   readonly="1"/>
+                            <field name="tip_count_moving"
+                                   readonly="1"/>
+                        </group>
+                        <group invisible="transfer_all_history">
+                            <field name="sale_count_staying"
+                                   readonly="1"/>
+                            <field name="tip_count_staying"
+                                   readonly="1"/>
+                        </group>
+                    </group>
+                </sheet>
+                <footer>
+                    <button name="action_apply"
+                            type="object"
+                            string="Apply Remap"
+                            class="btn-primary"
+                            icon="fa-check"/>
+                    <button string="Cancel"
+                            class="btn-secondary"
+                            special="cancel"/>
+                </footer>
+            </form>
+        </field>
+    </record>
+
+    <record id="action_clover_employee_remap_wizard"
+            model="ir.actions.act_window">
+        <field name="name">Remap with Effective Date</field>
+        <field name="res_model">clover.employee.remap.wizard</field>
+        <field name="view_mode">form</field>
+        <field name="target">new</field>
+    </record>
+
+</odoo>

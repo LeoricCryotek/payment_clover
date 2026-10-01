@@ -167,29 +167,105 @@
                         click <b>Sync Employees from Clover</b> at
                         the top of this page to refresh it.
                     </div>
-                    <field name="clover_employee_ids" nolabel="1">
-                        <list editable="bottom"
-                              decoration-warning="mapping_status == 'pending'"
+                    <!--
+                        Non-editable list + popup form.
+
+                        Odoo 19 has a known bug where editable
+                        one2many lists embedded in a parent form
+                        crash on save with
+                            undefined is not an object
+                            (evaluating 'this.editedRecord.save')
+                        when the parent form's Save button runs
+                        before the list has committed the pending
+                        row edit. The workaround is to drop
+                        editable="bottom" here and provide a
+                        <form> popup instead — users click a row,
+                        pick an employee in the dialog, and the
+                        row is saved cleanly before the parent
+                        form sees it.
+                    -->
+                    <field name="clover_employee_ids" nolabel="1"
+                           mode="list">
+                        <list decoration-warning="mapping_status == 'pending'"
                               decoration-muted="mapping_status == 'excluded'"
-                              decoration-info="mapping_status == 'mapped'">
+                              decoration-info="mapping_status == 'mapped'"
+                              create="false" delete="false">
                             <field name="mapping_status" readonly="1"
                                    widget="badge"
                                    decoration-warning="mapping_status == 'pending'"
                                    decoration-muted="mapping_status == 'excluded'"
                                    decoration-info="mapping_status == 'mapped'"/>
-                            <field name="name" readonly="1"/>
-                            <field name="nickname" readonly="1"
-                                   optional="hide"/>
-                            <field name="email" readonly="1"/>
-                            <field name="role" readonly="1"/>
-                            <field name="employee_id"
-                                   options="{'no_create': True}"
-                                   placeholder="Search hr.employees…"/>
-                            <field name="is_float" readonly="1"/>
+                            <field name="name"/>
+                            <field name="nickname" optional="hide"/>
+                            <field name="email"/>
+                            <field name="role"/>
+                            <field name="employee_id"/>
+                            <field name="is_float"/>
                             <field name="exclude_from_reports"/>
-                            <field name="last_synced" readonly="1"
-                                   optional="hide"/>
+                            <field name="last_synced" optional="hide"/>
                         </list>
+                        <form string="Map Clover Employee">
+                            <header>
+                                <button name="action_open_remap_wizard"
+                                        type="object"
+                                        string="Remap with Effective Date"
+                                        class="btn-secondary"
+                                        icon="fa-clock-o"
+                                        help="Open the remap wizard to
+                                              pick a date/time cutoff —
+                                              only records on or after
+                                              it move; earlier records
+                                              stay with the current
+                                              mapping."/>
+                            </header>
+                            <sheet>
+                                <div class="alert alert-info mb-2"
+                                     role="alert">
+                                    <i class="fa fa-info-circle me-1"
+                                       title="Info"/>
+                                    Pick the matching
+                                    <b>Odoo Employee</b> from the
+                                    dropdown — saving will
+                                    retroactively re-attribute
+                                    <b>every</b> historical sale and
+                                    tip for this cashier. If you only
+                                    want records from a specific
+                                    moment forward to move, click
+                                    <b>Remap with Effective Date</b>
+                                    above instead.
+                                </div>
+                                <group>
+                                    <group string="From Clover">
+                                        <field name="name"
+                                               readonly="1"/>
+                                        <field name="nickname"
+                                               readonly="1"/>
+                                        <field name="email"
+                                               readonly="1"/>
+                                        <field name="role"
+                                               readonly="1"/>
+                                        <field name="clover_employee_id"
+                                               readonly="1"/>
+                                    </group>
+                                    <group string="Mapping">
+                                        <field name="mapping_status"
+                                               widget="badge"
+                                               readonly="1"
+                                               decoration-warning="mapping_status == 'pending'"
+                                               decoration-muted="mapping_status == 'excluded'"
+                                               decoration-info="mapping_status == 'mapped'"/>
+                                        <field name="employee_id"
+                                               options="{'no_create': True}"
+                                               placeholder="Search hr.employees…"/>
+                                        <field name="is_float"
+                                               readonly="1"/>
+                                        <field name="exclude_from_reports"/>
+                                        <field name="last_synced"
+                                               readonly="1"/>
+                                    </group>
+                                </group>
+                            </sheet>
+                        </form>
                     </field>
                 </page>
             </xpath>
