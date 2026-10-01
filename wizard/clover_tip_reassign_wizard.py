@@ -30,9 +30,15 @@ class CloverTipReassignWizard(models.TransientModel):
         "hr.employee",
         string="Assign To",
         required=True,
-        help="Every selected tip will have employee_id set to this "
-             "hr.employee and is_unclaimed recomputed against "
-             "their department tip-eligibility.",
+        domain=[
+            ("department_id.x_clover_tips_eligible", "=", True),
+        ],
+        help="Only employees whose department is tip-eligible are "
+             "selectable here — e.g. Lounge staff, not Accounts "
+             "Payable or Volunteers. The department's "
+             "x_clover_tips_eligible flag is what controls this "
+             "list; set it to True on any department whose "
+             "members should receive personal Clover tips.",
     )
     recompute_unclaimed = fields.Boolean(
         string="Recompute Unclaimed Flag",

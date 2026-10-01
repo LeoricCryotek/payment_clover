@@ -346,7 +346,8 @@
                             <field name="amount" readonly="1"/>
                             <field name="employee_id"
                                    options="{'no_create': True}"
-                                   placeholder="Pick an hr.employee…"/>
+                                   placeholder="Pick a tip-eligible hr.employee…"
+                                   domain="[('department_id.x_clover_tips_eligible', '=', True)]"/>
                             <field name="is_unclaimed"/>
                             <field name="is_event_gratuity"/>
                             <field name="is_refunded"/>
