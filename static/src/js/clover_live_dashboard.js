@@ -184,15 +184,19 @@ class CloverLiveDashboard extends Component {
     }
 
     openTips() {
-        // Personal (excludes gratuity / unclaimed / refunded) so
-        // the click matches the tile total.
+        // The Tips Collected tile sums `clover.sale.tip_amount`,
+        // which includes every non-refunded tip (gratuity +
+        // unclaimed + personal). Match that so the drill-through
+        // total equals the tile. The list view already shows
+        // Event Gratuity / Unclaimed / Refunded flags so admins
+        // can see WHY a given tip is in a particular bucket —
+        // including unclaimed tips attached to a cashier whose
+        // hr.employee mapping is still pending.
         this._open({
             name: "Tips — " + this.dateLabel(),
             res_model: "clover.tip.entry",
             domain: [
                 ...this._dateDomain("date"),
-                ["is_event_gratuity", "=", false],
-                ["is_unclaimed", "=", false],
                 ["is_refunded", "=", false],
             ],
         });
