@@ -60,15 +60,25 @@
                     </group>
                 </sheet>
                 <footer>
+                    <button name="action_preview_html"
+                            type="object"
+                            string="Preview in Browser"
+                            class="btn-primary"
+                            icon="fa-eye"
+                            help="Opens the report in a new browser
+                                  tab — no download. Review it,
+                                  tweak filters, print to PDF from
+                                  the browser if you like what you
+                                  see."/>
                     <button name="action_generate_pdf"
                             type="object"
-                            string="Generate PDF"
-                            class="btn-primary"
+                            string="Download PDF"
+                            class="btn-secondary"
                             icon="fa-file-pdf-o"/>
                     <button name="action_send_email"
                             type="object"
                             string="Email Report"
-                            class="btn-primary"
+                            class="btn-secondary"
                             icon="fa-envelope"
                             invisible="not email_to"/>
                     <button string="Cancel"

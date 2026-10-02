@@ -149,12 +149,20 @@ class CloverTipReportWizard(models.TransientModel):
             # Include unassigned tips too so the report shows them
             # under "Unassigned" — filtering only on employees
             # here would hide them.
+            #
+            # IMPORTANT: Odoo domains are FLAT lists. The "|" OR
+            # operator and its two operand leaves must be appended
+            # as three separate elements, NOT wrapped in a single
+            # tuple. Nesting them produces
+            #     AttributeError: 'tuple' object has no attribute
+            #     'lower'
+            # inside Odoo's domain parser.
             if emps:
-                domain.append((
+                domain += [
                     "|",
                     ("employee_id", "in", emps.ids),
                     ("employee_id", "=", False),
-                ))
+                ]
             else:
                 domain.append(("employee_id", "=", False))
         return domain
@@ -274,6 +282,24 @@ class CloverTipReportWizard(models.TransientModel):
         self.ensure_one()
         report_ref = "payment_clover.action_report_clover_tips"
         return self.env.ref(report_ref).report_action(self)
+
+    def action_preview_html(self):
+        """Open the report rendered as HTML in a new browser tab.
+
+        Odoo exposes every QWeb report at
+            /report/html/<report_name>/<res_id>
+        which renders the same template without PDF conversion.
+        Returning an ir.actions.act_url with target='new' pops a
+        new tab; the user can read it, use the browser's Print →
+        Save as PDF, or close it without downloading anything.
+        """
+        self.ensure_one()
+        return {
+            "type": "ir.actions.act_url",
+            "url": "/report/html/payment_clover."
+                   "report_clover_tips/%s" % self.id,
+            "target": "new",
+        }
 
     def action_send_email(self):
         """Render the PDF and email it to `email_to` recipients."""
