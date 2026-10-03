@@ -258,6 +258,116 @@ class HrEmployee(models.Model):
         "clover.employee", "employee_id",
         string="Clover Employee Links",
     )
+    x_clover_role = fields.Selection(
+        [
+            ("EMPLOYEE", "Employee"),
+            ("MANAGER", "Manager"),
+            ("ADMIN", "Admin"),
+        ],
+        string="Clover Role",
+        default="EMPLOYEE",
+        help="Role granted to this person when their Clover "
+             "account is created via the Create Clover Account "
+             "button. EMPLOYEE = cashier/server (can take "
+             "payments). MANAGER = can also void and run basic "
+             "reports. ADMIN = full Clover Dashboard access "
+             "including API keys. Available for every employee "
+             "regardless of department — volunteers who run the "
+             "terminal still need an account, their tips simply "
+             "stay unclaimed (because their department has "
+             "x_clover_tips_eligible = False).",
+    )
+    x_clover_login_code = fields.Char(
+        string="Clover Login Code",
+        compute="_compute_x_clover_login_code",
+        store=False,
+        help="Auto-generated 6-digit PIN used to log into the "
+             "Clover terminal: last 4 digits of the mobile/work "
+             "phone, then repeated from the start until 6 chars. "
+             "Example: 208-553-4086 → last 4 = 4086 → PIN = "
+             "408640. Edit the phone number if you need a "
+             "different PIN.",
+    )
+    x_clover_push_eligible = fields.Boolean(
+        string="Can Push to Clover",
+        compute="_compute_x_clover_push_eligible",
+        store=False,
+        help="True when this employee is NOT already linked to a "
+             "Clover account for the enabled provider. Drives "
+             "visibility of the Create Clover Account button. "
+             "Volunteers and paid staff alike qualify — the "
+             "department's x_clover_tips_eligible flag only "
+             "controls whether their tips land as personal vs "
+             "unclaimed, not whether they can have a login.",
+    )
+
+    @api.depends("mobile_phone", "work_phone")
+    def _compute_x_clover_login_code(self):
+        """Pull the last 4 digits of whichever phone we have, then
+        repeat from the start until the string is 6 chars long."""
+        for emp in self:
+            raw = emp.mobile_phone or emp.work_phone or ""
+            digits = "".join(c for c in raw if c.isdigit())
+            if len(digits) >= 4:
+                last4 = digits[-4:]
+                emp.x_clover_login_code = (last4 * 2)[:6]
+            else:
+                emp.x_clover_login_code = False
+
+    @api.depends("x_clover_employee_ids")
+    def _compute_x_clover_push_eligible(self):
+        """Hide the push UI only when already linked.
+
+        Volunteers qualify too — a volunteer who runs the Clover
+        terminal still needs a login. Their tips will just land as
+        is_unclaimed because their department is flagged
+        x_clover_tips_eligible = False.
+        """
+        for emp in self:
+            emp.x_clover_push_eligible = not emp.x_clover_employee_ids
+
+    def action_push_to_clover(self):
+        """Create this hr.employee as a Clover employee.
+
+        Uses whichever Clover provider is enabled (or the first
+        provider if several exist in Test state). Delegates the
+        actual HTTP + record creation to
+        payment.provider._clover_create_employee.
+        """
+        self.ensure_one()
+        Provider = self.env["payment.provider"].sudo()
+        provider = Provider.search([
+            ("code", "=", "clover"),
+            ("state", "=", "enabled"),
+        ], limit=1)
+        if not provider:
+            provider = Provider.search([
+                ("code", "=", "clover"),
+                ("state", "!=", "disabled"),
+            ], limit=1)
+        if not provider:
+            from odoo.exceptions import UserError
+            raise UserError(_(
+                "No active Clover payment provider found. Create "
+                "or enable one under Clover → Configuration."))
+        clover_emp = provider._clover_create_employee(self)
+        return {
+            "type": "ir.actions.client",
+            "tag": "display_notification",
+            "params": {
+                "title": _("Pushed to Clover"),
+                "message": _(
+                    "%(name)s is now a Clover %(role)s with login "
+                    "code %(pin)s."
+                ) % {
+                    "name": self.name,
+                    "role": (self.x_clover_role or "EMPLOYEE"),
+                    "pin": self.x_clover_login_code,
+                },
+                "type": "success",
+                "sticky": False,
+            },
+        }
     x_clover_sale_ids = fields.One2many(
         "clover.sale", "employee_id",
         string="Clover Sales (this employee)",

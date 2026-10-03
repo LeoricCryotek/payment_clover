@@ -380,15 +380,16 @@ class PaymentProvider(models.Model):
     # Clover inventory sync
     # ------------------------------------------------------------------
 
-    def _clover_platform_request(self, method, path):
+    def _clover_platform_request(self, method, path, json=None):
         """Make a direct request to the Clover Platform API.
 
         The platform API lives at a different base URL than the ecommerce
         API and uses the same Bearer token.
 
-        :param str method: HTTP method
+        :param str method: HTTP method (GET, POST, PUT, DELETE)
         :param str path: e.g. '/v3/merchants/{mId}/items'
-        :return: Parsed JSON dict
+        :param dict json: optional JSON body for POST/PUT requests
+        :return: Parsed JSON dict (empty dict for 204 No Content)
         """
         self.ensure_one()
         base = self._clover_get_api_url("platform")
@@ -405,8 +406,12 @@ class PaymentProvider(models.Model):
             "Authorization": f"Bearer {platform_token}",
             "Accept": "application/json",
         }
-        _logger.info("Clover platform request: %s %s", method, url)
-        resp = requests.request(method, url, headers=headers, timeout=30)
+        if json is not None:
+            headers["Content-Type"] = "application/json"
+        _logger.info("Clover platform request: %s %s%s",
+                     method, url, " (with body)" if json else "")
+        resp = requests.request(
+            method, url, headers=headers, json=json, timeout=30)
         # Turn Clover auth failures into a helpful UserError instead
         # of a raw HTTPError traceback. 401 / 403 are almost always
         # a wrong or missing Platform REST API Token, or a token
@@ -440,7 +445,114 @@ class PaymentProvider(models.Model):
                 code=resp.status_code, url=url, hint=hint,
             ))
         resp.raise_for_status()
+        # 204 No Content (e.g. DELETE) has no body — return {} rather
+        # than exploding on resp.json().
+        if resp.status_code == 204 or not resp.content:
+            return {}
         return resp.json()
+
+    # ------------------------------------------------------------------
+    # Push: Odoo hr.employee → Clover
+    # ------------------------------------------------------------------
+    def _clover_create_employee(self, hr_employee):
+        """POST a new Clover employee record for an hr.employee.
+
+        Builds the Clover payload from the Odoo employee + their
+        ``x_clover_role`` and ``x_clover_login_code`` fields, calls
+        ``POST /v3/merchants/{mId}/employees``, and on success
+        creates the matching ``clover.employee`` mirror linked back
+        to this hr.employee so no further mapping work is needed.
+
+        Guards:
+            * Provider must be enabled.
+            * The hr.employee must have a 6-digit login code
+              computed from a phone number (see
+              hr.employee._compute_x_clover_login_code).
+            * The hr.employee must not already have a
+              clover.employee record for THIS provider.
+
+        :returns: the created clover.employee record.
+        :raises UserError: on validation failure or Clover HTTP
+            error with the Clover error message surfaced.
+        """
+        self.ensure_one()
+        if self.code != "clover":
+            raise UserError(_("Not a Clover provider."))
+        if not hr_employee.x_clover_login_code:
+            raise UserError(_(
+                "No login code yet for %(name)s. Add a mobile or "
+                "work phone number with at least 4 digits — the "
+                "login code is the last 4 digits repeated to 6 "
+                "characters (e.g. 208-553-4086 → 408640).",
+                name=hr_employee.name,
+            ))
+        existing = self.env["clover.employee"].sudo().search([
+            ("provider_id", "=", self.id),
+            ("employee_id", "=", hr_employee.id),
+        ], limit=1)
+        if existing:
+            raise UserError(_(
+                "%(name)s is already linked to Clover employee "
+                "%(cid)s on this provider.",
+                name=hr_employee.name,
+                cid=existing.clover_employee_id,
+            ))
+
+        role = (hr_employee.x_clover_role or "EMPLOYEE").upper()
+        if role not in ("EMPLOYEE", "MANAGER", "ADMIN"):
+            role = "EMPLOYEE"
+        nickname = (hr_employee.name or "").split()[0] if (
+            hr_employee.name) else ""
+        payload = {
+            "name": hr_employee.name,
+            "nickname": nickname,
+            "role": role,
+            "pin": hr_employee.x_clover_login_code,
+            # Round-trip tag: future syncs match this payload's
+            # customId back to the Odoo hr.employee without ambiguity.
+            "customId": "odoo-hr-emp-%s" % hr_employee.id,
+        }
+        work_email = (hr_employee.work_email
+                      or hr_employee.private_email
+                      or "")
+        if work_email:
+            payload["email"] = work_email
+
+        path = "/v3/merchants/%s/employees" % self.clover_merchant_id
+        try:
+            result = self._clover_platform_request(
+                "POST", path, json=payload)
+        except Exception as e:
+            _logger.exception(
+                "payment_clover: push to Clover failed for %s",
+                hr_employee.name,
+            )
+            raise UserError(_(
+                "Clover rejected the new employee for %(name)s.\n\n"
+                "%(err)s\n\n"
+                "Verify the Platform REST API Token has WRITE "
+                "scope on Employees. Check the Clover Merchant "
+                "Dashboard → Setup → API Tokens.",
+                name=hr_employee.name, err=str(e),
+            )) from e
+
+        clover_emp = self.env["clover.employee"].sudo().create({
+            "provider_id": self.id,
+            "clover_employee_id": result.get("id"),
+            "name": result.get("name") or hr_employee.name,
+            "nickname": result.get("nickname") or nickname,
+            "email": result.get("email") or work_email or False,
+            "role": result.get("role") or role,
+            "employee_id": hr_employee.id,
+            "last_synced": fields.Datetime.now(),
+        })
+        _logger.info(
+            "payment_clover: pushed hr.employee %s (id=%s) → "
+            "Clover employee %s, role=%s, pin=******",
+            hr_employee.name, hr_employee.id,
+            result.get("id"), role,
+        )
+        return clover_emp
 
     # ------------------------------------------------------------------
     # Silence guarantee
@@ -1122,6 +1234,31 @@ class PaymentProvider(models.Model):
             ], limit=1)
 
             employee_id = existing.employee_id.id if existing else False
+
+            # Round-trip tag — a Clover account created via Push
+            # to Clover (_clover_create_employee) carries
+            # customId = "odoo-hr-emp-<id>". This is the most
+            # authoritative mapping signal we have, so check it
+            # FIRST (before email / name fuzzy match) and skip
+            # the auto-match block entirely when it hits.
+            custom_id = (el.get("customId") or "").strip()
+            if not employee_id and custom_id.startswith(
+                    "odoo-hr-emp-"):
+                try:
+                    tagged_id = int(custom_id.rsplit("-", 1)[-1])
+                except (ValueError, IndexError):
+                    tagged_id = 0
+                if tagged_id:
+                    tagged = HrEmp.browse(tagged_id).exists()
+                    if tagged:
+                        employee_id = tagged.id
+                        _logger.info(
+                            "Clover sync: customId-matched %s "
+                            "(Clover id=%s) back to hr.employee "
+                            "%s via Push round-trip tag.",
+                            name, clover_id, tagged.name,
+                        )
+
             if not employee_id and not is_float:
                 # Priority: work_email → exact name → prefix name.
                 # Prefix only auto-links when exactly ONE candidate

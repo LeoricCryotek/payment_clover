@@ -13,10 +13,77 @@
         <field name="model">hr.employee</field>
         <field name="inherit_id" ref="hr.view_employee_form"/>
         <field name="arch" type="xml">
+            <!--
+                Top-bar hot button. Visible on paid employees who
+                aren't yet linked to a Clover account. Clicking it
+                calls the push, which also writes back the matching
+                clover.employee mirror so the mapping is in place
+                without any extra steps.
+            -->
+            <xpath expr="//sheet" position="before">
+                <header>
+                    <button name="action_push_to_clover"
+                            type="object"
+                            string="Create Clover Account"
+                            class="btn-primary"
+                            icon="fa-id-card"
+                            invisible="not x_clover_push_eligible"
+                            groups="payment_clover.group_clover_admin"
+                            confirm="Create a Clover employee account
+                                     for this person with the role
+                                     and 6-digit login code shown on
+                                     the Clover POS tab? The matching
+                                     Clover Employee mirror record
+                                     will be created and linked back
+                                     automatically."
+                            help="Opens on top-bar for admins so a
+                                  new paid hire can be onboarded to
+                                  Clover without digging into the
+                                  Clover POS tab. Hidden on
+                                  Volunteers and on employees who
+                                  are already linked to a Clover
+                                  cashier."/>
+                </header>
+            </xpath>
             <xpath expr="//notebook" position="inside">
                 <page string="Clover POS" name="clover_pos"
                       groups="payment_clover.group_clover_user">
+                    <!--
+                        Create Clover Account banner. Visible for
+                        ANY employee not yet linked — volunteers
+                        included (their tips just land as unclaimed
+                        because their department is flagged
+                        x_clover_tips_eligible = False, but they
+                        still need a login to run the terminal).
+                    -->
+                    <div class="alert alert-info mb-3" role="alert"
+                         invisible="not x_clover_push_eligible"
+                         groups="payment_clover.group_clover_admin">
+                        <i class="fa fa-id-card me-1"
+                           title="Information"/>
+                        <strong>Create a Clover login for this
+                        employee.</strong>
+                        Pick a <b>Clover Role</b> below, confirm the
+                        auto-generated 6-digit login code, then
+                        click <b>Create Clover Account</b> in the
+                        header. The code is the last 4 digits of the
+                        phone number repeated to 6 characters
+                        (e.g. 208-553-4086 → 408640). Available for
+                        every employee — tip eligibility is a
+                        separate concept controlled by the
+                        department.
+                    </div>
                     <group>
+                        <group string="Clover Setup"
+                               invisible="not x_clover_push_eligible and not x_clover_employee_ids"
+                               groups="payment_clover.group_clover_admin">
+                            <field name="x_clover_role"
+                                   invisible="not x_clover_push_eligible"/>
+                            <field name="x_clover_login_code"
+                                   readonly="1"/>
+                            <field name="x_clover_push_eligible"
+                                   invisible="1"/>
+                        </group>
                         <group string="This Employee's Clover Activity">
                             <field name="x_clover_auto_created"
                                    readonly="1"/>
