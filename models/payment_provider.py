@@ -901,27 +901,70 @@ class PaymentProvider(models.Model):
 
         created = 0
         skipped_no_product = 0
-        # Chunk through to avoid the ORM building one giant
-        # transaction. Each ensure call is idempotent.
+        skipped_validation = 0
+        validation_products = {}  # product_name -> count
+        # Each sale.order creation runs inside its own SAVEPOINT so
+        # a single row that fails validation (event products
+        # needing event_id + event_ticket_id + event_slot_id, for
+        # example) rolls back ONLY that row — not the whole 100-row
+        # chunk. The chunk-level commit then persists every row
+        # that did succeed. Without savepoints, one bad row = the
+        # whole chunk gets rolled back and the backfill stalls
+        # partway through.
         BATCH = 100
         for i in range(0, len(to_backfill), BATCH):
             chunk = to_backfill[i:i + BATCH]
             for sale in chunk:
                 before = sale.sale_order_id.id
-                sale._clover_ensure_sale_order()
-                if sale.sale_order_id.id != before:
-                    created += 1
-                else:
-                    skipped_no_product += 1
-            # Commit every batch so a mid-run error doesn't lose
-            # everything already done.
+                sp_name = "clover_backfill_%s" % sale.id
+                try:
+                    self.env.cr.execute(
+                        "SAVEPOINT %s" % sp_name)
+                    sale._clover_ensure_sale_order()
+                    self.env.cr.execute(
+                        "RELEASE SAVEPOINT %s" % sp_name)
+                    if sale.sale_order_id.id != before:
+                        created += 1
+                    else:
+                        skipped_no_product += 1
+                except Exception as e:
+                    self.env.cr.execute(
+                        "ROLLBACK TO SAVEPOINT %s" % sp_name)
+                    skipped_validation += 1
+                    # Track which products are consistently
+                    # failing so the summary toast can point the
+                    # user at the right items to fix.
+                    for line in sale.line_ids:
+                        pname = (line.product_id.name
+                                 or line.description or "?")
+                        validation_products[pname] = (
+                            validation_products.get(pname, 0) + 1)
+                    _logger.warning(
+                        "payment_clover: skipped sale.order for "
+                        "clover.sale %s due to validation error: "
+                        "%s", sale.clover_order_id, e,
+                    )
+            # Commit the chunk — every row that didn't rollback
+            # its savepoint is persisted.
             self.env.cr.commit()
 
         _logger.info(
             "payment_clover: sale.order backfill complete — "
-            "created %s, skipped %s (missing product link).",
-            created, skipped_no_product,
+            "created=%s, skipped_no_product=%s, "
+            "skipped_validation=%s.",
+            created, skipped_no_product, skipped_validation,
         )
+        # Build a human message. Top 3 problem products get named
+        # so the user knows exactly what to fix.
+        top_problems = sorted(
+            validation_products.items(),
+            key=lambda kv: -kv[1])[:3]
+        problem_summary = (
+            " Top products needing attention: " + ", ".join(
+                "%s (%s)" % (name, count)
+                for name, count in top_problems
+            ) + "."
+        ) if top_problems else ""
         return {
             "type": "ir.actions.client",
             "tag": "display_notification",
@@ -929,12 +972,16 @@ class PaymentProvider(models.Model):
                 "title": _("sale.order Backfill Complete"),
                 "message": _(
                     "Created %(created)s sale.order records. "
-                    "Skipped %(skipped)s rows because one or more "
-                    "lines have no linked Odoo product — link the "
-                    "Clover items on the Clover Items tab and "
-                    "re-run."
-                ) % {"created": created,
-                     "skipped": skipped_no_product},
+                    "Skipped %(np)s rows (missing Odoo product "
+                    "link). Skipped %(val)s rows (validation "
+                    "error — usually event products needing "
+                    "event + ticket + slot fields set manually).%(p)s"
+                ) % {
+                    "created": created,
+                    "np": skipped_no_product,
+                    "val": skipped_validation,
+                    "p": problem_summary,
+                },
                 "type": "success",
                 "sticky": True,
             },
