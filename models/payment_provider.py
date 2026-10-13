@@ -115,6 +115,29 @@ class PaymentProvider(models.Model):
              "QuickBooks Online and you only want mirror records "
              "for reporting.",
     )
+    clover_cogs_source = fields.Selection(
+        [
+            ("clover_first", "Clover item cost (fall back to Odoo "
+                             "product cost)"),
+            ("odoo_only", "Odoo product cost only (ignore Clover's "
+                          "cost field)"),
+        ],
+        string="COGS Source for Reports",
+        default="clover_first",
+        help="Which cost value feeds the Line COGS / Total COGS / "
+             "Net Margin columns in Clover reports.\n\n"
+             "• Clover first — use Clover's item cost when set, "
+             "fall back to the linked Odoo product's Cost "
+             "(standard_price) when Clover's cost is 0 or missing. "
+             "This is the default and matches the old behaviour.\n\n"
+             "• Odoo only — always use the Odoo product's Cost "
+             "field, ignore whatever Clover reports. Use this when "
+             "your bookkeeper maintains costs in Odoo and treats "
+             "Clover-side costs as untrustworthy or stale.\n\n"
+             "After changing this, click Recompute Sale-Line Links "
+             "above to re-roll historical COGS + Margin numbers "
+             "against the new source.",
+    )
     clover_last_sales_sync_at = fields.Datetime(
         string="Last Sales Sync",
         readonly=True,
@@ -797,6 +820,87 @@ class PaymentProvider(models.Model):
             if len(elements) < page_size:
                 return
             offset += page_size
+
+    def action_clover_backfill_sale_orders(self):
+        """One-click backfill: create a sale.order for every
+        historical clover.sale that doesn't have one.
+
+        Useful immediately after flipping
+        ``clover_auto_create_sale_orders`` from OFF to ON — the
+        toggle only affects FUTURE sync runs, so without this
+        button every clover.sale already in the DB stays invisible
+        to native Odoo Sales reports (sale.report queries
+        sale.order, not clover.sale).
+
+        For each missing-sale.order row the method calls
+        ``clover.sale._clover_ensure_sale_order()``, which is the
+        same silent-context, state='sale', no-emails path used
+        during normal sync. Rows that can't be converted (no
+        linked partner, or lines without an Odoo product link)
+        are skipped — same rules as the per-sync path.
+        """
+        self.ensure_one()
+        if self.code != "clover":
+            return False
+        if not self.clover_auto_create_sale_orders:
+            raise UserError(_(
+                "Turn on 'Create sale.order Records from Clover "
+                "Sales' first, then run this backfill. Without the "
+                "toggle on, the per-sale creation path is a no-op."))
+
+        CloverSale = self.env["clover.sale"].sudo()
+        to_backfill = CloverSale.search([
+            ("provider_id", "=", self.id),
+            ("sale_order_id", "=", False),
+            ("partner_id", "!=", False),
+            ("is_paid", "=", True),
+        ])
+        _logger.info(
+            "payment_clover: starting sale.order backfill on %s "
+            "clover.sale rows for provider %s.",
+            len(to_backfill), self.name,
+        )
+
+        created = 0
+        skipped_no_product = 0
+        # Chunk through to avoid the ORM building one giant
+        # transaction. Each ensure call is idempotent.
+        BATCH = 100
+        for i in range(0, len(to_backfill), BATCH):
+            chunk = to_backfill[i:i + BATCH]
+            for sale in chunk:
+                before = sale.sale_order_id.id
+                sale._clover_ensure_sale_order()
+                if sale.sale_order_id.id != before:
+                    created += 1
+                else:
+                    skipped_no_product += 1
+            # Commit every batch so a mid-run error doesn't lose
+            # everything already done.
+            self.env.cr.commit()
+
+        _logger.info(
+            "payment_clover: sale.order backfill complete — "
+            "created %s, skipped %s (missing product link).",
+            created, skipped_no_product,
+        )
+        return {
+            "type": "ir.actions.client",
+            "tag": "display_notification",
+            "params": {
+                "title": _("sale.order Backfill Complete"),
+                "message": _(
+                    "Created %(created)s sale.order records. "
+                    "Skipped %(skipped)s rows because one or more "
+                    "lines have no linked Odoo product — link the "
+                    "Clover items on the Clover Items tab and "
+                    "re-run."
+                ) % {"created": created,
+                     "skipped": skipped_no_product},
+                "type": "success",
+                "sticky": True,
+            },
+        }
 
     def action_clover_recompute_sale_line_links(self):
         """Force product_id + unit_qty backfill on every clover.sale.line.

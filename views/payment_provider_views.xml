@@ -61,6 +61,8 @@
                            invisible="not clover_sync_sales"/>
                     <field name="clover_sync_item_costs"
                            invisible="not clover_sync_sales"/>
+                    <field name="clover_cogs_source"
+                           invisible="not clover_sync_sales"/>
                     <field name="clover_last_sales_sync_at" readonly="1"
                            invisible="not clover_sync_sales"/>
                     <field name="clover_last_employee_sync_at" readonly="1"
@@ -123,6 +125,14 @@
                             icon="fa-magic"
                             invisible="code != 'clover' or not clover_sync_sales"
                             help="Re-runs the product_id compute + backfills unit_qty=1 on every clover.sale.line. Use after linking a Clover Item to a product, or when historical lines from an early sync are missing product attribution."/>
+                    <button name="action_clover_backfill_sale_orders"
+                            string="Backfill sale.orders from History"
+                            type="object"
+                            class="btn-link"
+                            icon="fa-history"
+                            invisible="code != 'clover' or not clover_auto_create_sale_orders"
+                            confirm="Create a sale.order record (silent, state='sale', no emails) for every historical Clover sale that doesn't already have one. Run this once right after turning on 'Create sale.order Records from Clover Sales' so your native Odoo Sales Analysis report sees your Clover history. Rows missing a product link are skipped."
+                            help="Historical clover.sale rows don't get sale.orders retroactively when you flip the toggle — this one-shot button walks every unlinked clover.sale and runs the per-sale creation. Safe to re-run; already-linked rows are skipped."/>
                 </header>
             </xpath>
 

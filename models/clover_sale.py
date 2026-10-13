@@ -341,18 +341,40 @@ class CloverSaleLine(models.Model):
     @api.depends("clover_item_id", "provider_id", "product_id",
                  "unit_qty", "amount")
     def _compute_line_cost(self):
+        """Compute per-line COGS using the provider's chosen source.
+
+        Two modes selectable on the provider via
+        ``clover_cogs_source``:
+
+        * ``clover_first`` (default) — look up the clover.item.cost
+          for this line's Clover item; if set, use it. Otherwise
+          fall back to the linked Odoo product's standard_price.
+          Preserves the historical behaviour.
+
+        * ``odoo_only`` — skip clover.item entirely. Always use
+          ``product.standard_price``. This is what a lodge wants
+          when the bookkeeper maintains costs in Odoo and Clover's
+          cost field is empty / unreliable.
+
+        Lines whose provider has no explicit setting (e.g. still
+        on the pre-19.0.4.35 default) fall through to clover_first.
+        """
         Item = self.env["clover.item"].sudo()
         for line in self:
+            source = (line.provider_id.clover_cogs_source
+                      or "clover_first")
             unit_cost = 0.0
-            if line.clover_item_id and line.provider_id:
+            if (source == "clover_first"
+                    and line.clover_item_id
+                    and line.provider_id):
                 item = Item.search([
                     ("provider_id", "=", line.provider_id.id),
                     ("clover_item_id", "=", line.clover_item_id),
                 ], limit=1)
                 if item and item.cost:
                     unit_cost = item.cost
-            # Fallback to Odoo product standard_price when Clover
-            # side has no cost recorded.
+            # Fallback (clover_first with no Clover cost) OR
+            # primary path (odoo_only) — both land here.
             if not unit_cost and line.product_id:
                 unit_cost = line.product_id.standard_price or 0.0
             line.unit_cost = unit_cost
