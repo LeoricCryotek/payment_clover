@@ -55,6 +55,10 @@
                     <field name="clover_sync_sales"/>
                     <field name="clover_auto_create_sale_orders"
                            invisible="not clover_sync_sales"/>
+                    <field name="clover_walkin_partner_id"
+                           invisible="not clover_auto_create_sale_orders"
+                           options="{'no_create_edit': False}"
+                           placeholder="Pick a contact for walk-in sales…"/>
                     <field name="clover_auto_create_partners"
                            invisible="not clover_sync_sales"/>
                     <field name="clover_new_employee_behavior"

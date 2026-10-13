@@ -115,6 +115,22 @@ class PaymentProvider(models.Model):
              "QuickBooks Online and you only want mirror records "
              "for reporting.",
     )
+    clover_walkin_partner_id = fields.Many2one(
+        "res.partner",
+        string="Walk-in Fallback Customer",
+        help="Contact used as the sale.order partner for Clover "
+             "sales that have no linked customer (walk-ins — the "
+             "majority of bar/lounge traffic). Without this, "
+             "every walk-in is skipped during sale.order creation "
+             "because sale.order requires a partner, and your "
+             "native Odoo Sales Analysis reports stay empty.\n\n"
+             "Typical setup: create a res.partner called 'Walk-in "
+             "Customer' or 'Bar Walk-in', then pick it here. All "
+             "walk-in Clover sales will attach to that single "
+             "contact — your reports will show the aggregate "
+             "'Walk-in Customer' total matching your Clover "
+             "numbers.",
+    )
     clover_cogs_source = fields.Selection(
         [
             ("clover_first", "Clover item cost (fall back to Odoo "
@@ -849,12 +865,34 @@ class PaymentProvider(models.Model):
                 "toggle on, the per-sale creation path is a no-op."))
 
         CloverSale = self.env["clover.sale"].sudo()
+        # We used to require partner_id != False here, which caused
+        # every walk-in sale (the bulk of bar/lounge traffic) to be
+        # silently skipped. Now we rely on
+        # _clover_ensure_sale_order to pick either the linked
+        # partner OR the provider's Walk-in Fallback Customer, and
+        # skip only when neither is available. If no fallback is
+        # configured, the user gets a clear log line explaining why
+        # some rows didn't convert.
         to_backfill = CloverSale.search([
             ("provider_id", "=", self.id),
             ("sale_order_id", "=", False),
-            ("partner_id", "!=", False),
             ("is_paid", "=", True),
         ])
+        if not self.clover_walkin_partner_id:
+            no_partner_count = CloverSale.search_count([
+                ("provider_id", "=", self.id),
+                ("sale_order_id", "=", False),
+                ("partner_id", "=", False),
+                ("is_paid", "=", True),
+            ])
+            if no_partner_count:
+                _logger.warning(
+                    "payment_clover: %s walk-in Clover sales will "
+                    "NOT convert to sale.order because no Walk-in "
+                    "Fallback Customer is set on the provider. Pick "
+                    "one in Clover → Configuration and re-run.",
+                    no_partner_count,
+                )
         _logger.info(
             "payment_clover: starting sale.order backfill on %s "
             "clover.sale rows for provider %s.",

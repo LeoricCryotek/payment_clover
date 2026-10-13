@@ -176,9 +176,23 @@ class CloverSale(models.Model):
         for sale in self:
             if sale.sale_order_id:
                 continue
-            if not sale.partner_id:
-                # No contact to attach the sale.order to — skip.
-                # The clover.sale mirror still exists for reporting.
+            # Pick the partner: Clover-matched contact when there
+            # is one, otherwise fall back to the provider's
+            # Walk-in Fallback Customer. The majority of bar
+            # traffic has no contact attached, so without the
+            # fallback we'd skip 95% of sales. Only when BOTH are
+            # unavailable do we give up on this one.
+            partner = (sale.partner_id
+                       or sale.provider_id.clover_walkin_partner_id)
+            if not partner:
+                _logger.info(
+                    "Clover: skipping sale.order for %s — no "
+                    "contact on the sale AND no Walk-in Fallback "
+                    "Customer configured on the provider. Set one "
+                    "under Clover → Configuration to backfill "
+                    "walk-ins.",
+                    sale.clover_order_id,
+                )
                 continue
             silent = sale.provider_id._clover_silent_context()
             SO = self.env["sale.order"].sudo().with_context(**silent)
@@ -203,7 +217,7 @@ class CloverSale(models.Model):
                 )
                 continue
             so_vals = {
-                "partner_id": sale.partner_id.id,
+                "partner_id": partner.id,
                 "date_order": sale.date,
                 "origin": f"Clover {sale.clover_order_id}",
                 "order_line": order_lines,
